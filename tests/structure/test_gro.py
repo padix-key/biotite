@@ -113,17 +113,16 @@ def test_box_shape(path, single_model):
 
 
 def test_box_parsing():
-    path = join(data_dir, "1l2y.gro")
+    path = join(data_dir, "1igy.gro")
     gro_file = gro.GROFile()
     gro_file.read(path)
     a = gro_file.get_structure()
-    expected_box = np.array([[
-        [2.00000, 1.88562, 1.63299],
-        [0.00000, 0.00000, 0.66667],
-        [0.00000, -0.66667, 0.94281]
-    ]])
-    box = a.box
-    assert np.array_equal(box, expected_box)
+    expected_box = np.array([[6.66500, 19.06600, 6.88387],
+                             [0.00000,  0.00000, 0.00000],
+                             [0.00000, -2.45936, 0.00000]])
+
+    assert expected_box.flatten().tolist() \
+           == approx(a.box.flatten().tolist(), abs=1e-2)
 
 
 
