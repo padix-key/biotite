@@ -11,6 +11,7 @@ import numpy as np
 import biotite
 import biotite.structure.io.gro as gro
 import biotite.structure.io.pdb as pdb
+from biotite.structure.atoms import AtomArray
 from .util import data_dir
 
 
@@ -89,6 +90,40 @@ def test_pdb_to_gro(path, single_model):
     # Mind rounding errors when converting pdb to gro (A -> nm)
     assert a1.coord.flatten().tolist() \
         == approx(a2.coord.flatten().tolist(), abs=1e-2)
+
+
+@pytest.mark.parametrize(
+    "path, single_model",
+    itertools.product(
+        glob.glob(join(data_dir, "*.gro")),
+        [False, True]
+    )
+)
+def test_box_shape(path, single_model):
+    model = 1 if single_model else None
+    gro_file = gro.GROFile()
+    gro_file.read(path)
+    a = gro_file.get_structure(model=model)
+
+    if isinstance(a, AtomArray):
+        expected_box_dim = (3, 3)
+    else:
+        expected_box_dim = (len(a), 3, 3)
+    assert expected_box_dim == a.box.shape
+
+
+def test_box_parsing():
+    path = join(data_dir, "1l2y.gro")
+    gro_file = gro.GROFile()
+    gro_file.read(path)
+    a = gro_file.get_structure()
+    expected_box = np.array([[
+        [2.00000, 1.88562, 1.63299],
+        [0.00000, 0.00000, 0.66667],
+        [0.00000, -0.66667, 0.94281]
+    ]])
+    box = a.box
+    assert np.array_equal(box, expected_box)
 
 
 

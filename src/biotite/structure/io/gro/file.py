@@ -88,6 +88,9 @@ class GROFile(TextFile):
             [int(self.lines[i]) for i in model_start_i]
         )
 
+        # Line indeces for box vectors
+        model_box_i = model_start_i+model_atom_counts+1
+
         # Helper function to get the indeces of all atoms for a model
         def get_atom_line_i(model_start_i, model_atom_counts):
             return np.arange(
@@ -153,6 +156,19 @@ class GROFile(TextFile):
                     array.coord[m,atom_i,1] = float(line[28:36])*10
                     array.coord[m,atom_i,2] = float(line[36:44])*10
 
+        # Fill in box vectors
+        if model is None:
+            box = np.full((len(array), 9), 0.0)
+            for idx, i in enumerate(model_box_i):
+                vectors = [float(x) for x in self.lines[i].split()]
+                box[idx, 0:len(vectors)] = vectors
+            array.box = box.reshape((len(array), 3, 3))
+        else:
+            box = np.full(9, 0.0)
+            vectors = [float(x) for x in self.lines[model_box_i[model-1]].split()]
+            box[0:len(vectors)] = vectors
+            array.box = box.reshape((3, 3))
+
         return array
 
             
@@ -171,11 +187,13 @@ class GROFile(TextFile):
 
         def get_box_dimen(array):
             """
-            GRO files have the box dimensions as last line for each model.
-            Because we cannot properly detect the box shape, we simply use
-            the min and max coordinates in xyz to get the correct size
+            Box dimensions are mandatory in GRO files. If the array has no
+            associated box dimensions, we set them to 0.
             """
-            return np.abs(array.coord.max(axis=0) - array.coord.min(axis=0))/10
+            if array.box is None:
+                return np.full(9, 0.0)
+            else:
+                return array.box.reshape(9)
 
         if isinstance(array, AtomArray):
             self.lines = [None] * (array.array_length() + 3)
