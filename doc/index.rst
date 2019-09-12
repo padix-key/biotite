@@ -2,6 +2,85 @@
    under the 3-Clause BSD License. Please see 'LICENSE.rst' for further
    information.
 
+.. raw:: html
+
+   <script type="application/ld+json">
+      {
+         "@context": "http://schema.org/",
+         "@type": "SoftwareSourceCode",
+         "name": "Biotite",
+         "description": "This package bundles popular tasks in computational molecular biology into a uniform Python library.",
+         "image": "https://www.biotite-python.org/_static/assets/general/biotite_logo.svg",
+         
+         "codeRepository": "https://github.com/biotite-dev/biotite",
+         "codeSampleType": "library",
+         "programmingLanguage": "Python",
+         "runtimePlatform": [
+            "Python3.6",
+            "Python3.7"
+         ],
+         "license": "https://opensource.org/licenses/BSD-3-Clause",
+         
+         "targetProduct": {
+            "@type": "SoftwareApplication",
+            "name": "Biotite",
+            "applicationCategory": "Bioinformatics",
+            "applicationSubCategory": "Computational molecular biology",
+            "installUrl": "https://pypi.org/project/biotite/",
+            "operatingSystem": [
+               "Windows",
+               "Linux",
+               "OSX"
+            ],
+            "softwareVersion": "0.17",
+            "featureList": [
+               "https://www.biotite-python.org/apidoc/biotite.structure.html",
+               "https://www.biotite-python.org/apidoc/biotite.sequence.html",
+               "https://www.biotite-python.org/apidoc/biotite.database.html",
+               "https://www.biotite-python.org/apidoc/biotite.application.html"
+            ]
+         },
+         
+         "citation": {
+            "@type": "ScholarlyArticle",
+            "headline": "Biotite: a unifying open source computational biology framework in Python",
+            "url": "https://bmcbioinformatics.biomedcentral.com/articles/10.1186/s12859-018-2367-z",
+            "image": "https://media.springernature.com/original/springer-static/image/art%3A10.1186%2Fs12859-018-2367-z/MediaObjects/12859_2018_2367_Fig3_HTML.png",
+            "author": [
+               {
+                  "@type": "Person",
+                  "name": "Patrick Kunzmann",
+                  "givenName": "Patrick",
+                  "familyName": "Kunzmann"
+               },
+               {
+                  "@type": "Person",
+                  "name": "Kay Hamacher",
+                  "givenName": "Kay",
+                  "familyName": "Hamacher"
+               }
+            ],
+            "publisher": {
+               "@type": "Organization",
+               "name": "BMC Bioinformatics",
+               "url": "https://bmcbioinformatics.biomedcentral.com/",
+               "logo": {
+                  "@type": "ImageObject",
+                  "url": "https://upload.wikimedia.org/wikipedia/commons/2/2a/BMC_Bioinformatics_Logo.jpg"
+               }
+            },
+            "datePublished": "2018-10-01"
+         },
+
+         "potentialAction": {
+            "@type": "SearchAction",
+            "target": "https://www.biotite-python.org/search.html?q={search_term_string}",
+            "query-input": "required name=search_term_string"
+         }
+      }
+   </script>
+
+
 #####################
 Biotite documentation
 #####################
