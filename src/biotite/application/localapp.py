@@ -35,8 +35,6 @@ class LocalApp(Application, metaclass=abc.ABCMeta):
         self._exec_dir = getcwd()
         self._process = None
         self._input = None
-        self._stdout_file_path = None
-        self._stdout_file = None
         self._command = None
     
     @requires_state(AppState.CREATED)
