@@ -34,6 +34,7 @@ class LocalApp(Application, metaclass=abc.ABCMeta):
         self._options = []
         self._exec_dir = getcwd()
         self._process = None
+        self._input = None
         self._stdout_file_path = None
         self._stdout_file = None
         self._command = None
@@ -204,14 +205,38 @@ class LocalApp(Application, metaclass=abc.ABCMeta):
             The standard error.
         """
         return self._stderr
+    
+    @requires_state(AppState.CREATED | AppState.RUNNING)
+    def set_stdin(self, input):
+        """
+        Communicate input into the process' STDIN.
+        
+        PROTECTED: Do not call from outside.
+        
+        Parameters
+        ----------
+        stdin : str or bytes
+            The input to communicate.
+        """
+        if self.get_app_state() == AppState.CREATED:
+            self._input = input
+        else: # AppState.RUNNING
+            self._process.stdin.write(self._input)
+            self._process.stdin.flush()
+
 
     def run(self):
         cwd = getcwd()
         chdir(self._exec_dir) 
         self._command = [self._bin_path] + self._options + self._arguments
         self._process = Popen(
-            self._command, stdout=PIPE, stderr=PIPE, encoding="UTF-8"
+            self._command,
+            stdin=PIPE, stdout=PIPE, stderr=PIPE,
+            encoding="UTF-8"
         )
+        if self._input is not None:
+            self._process.stdin.write(self._input)
+            self._process.stdin.flush()
         chdir(cwd)
     
     def is_finished(self):
