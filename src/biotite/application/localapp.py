@@ -11,7 +11,7 @@ import time
 import io
 from os import chdir, getcwd
 from .application import Application, AppState, requires_state
-from subprocess import Popen, PIPE, SubprocessError
+from subprocess import Popen, SubprocessError, PIPE, DEVNULL
 
 class LocalApp(Application, metaclass=abc.ABCMeta):
     """
@@ -35,6 +35,8 @@ class LocalApp(Application, metaclass=abc.ABCMeta):
         self._exec_dir = getcwd()
         self._process = None
         self._input = None
+        self._ignore_stdout = False
+        self._ignore_stderr = False
         self._command = None
     
     @requires_state(AppState.CREATED)
@@ -130,7 +132,20 @@ class LocalApp(Application, metaclass=abc.ABCMeta):
         clustalo --in ...fa --out ...fa --output-order=tree-order --seqtype Protein --guidetree-out ...tree
         """
         return " ".join(self._command)
-
+    
+    @requires_state(AppState.CREATED)
+    def ignore_stdout(self):
+        """
+        Pipe the STDOUT of the process directly into DEVNULL.
+        """
+        self._ignore_stdout = True
+    
+    @requires_state(AppState.CREATED)
+    def ignore_stderr(self):
+        """
+        Pipe the STDERR of the process directly into DEVNULL.
+        """
+        self._ignore_stderr = True
     
     @requires_state(AppState.CREATED)
     def set_exec_dir(self, exec_dir):
@@ -222,14 +237,15 @@ class LocalApp(Application, metaclass=abc.ABCMeta):
             self._process.stdin.write(self._input)
             self._process.stdin.flush()
 
-
     def run(self):
         cwd = getcwd()
         chdir(self._exec_dir) 
         self._command = [self._bin_path] + self._options + self._arguments
+        stdout = DEVNULL if self._ignore_stdout else PIPE
+        stderr = DEVNULL if self._ignore_stderr else PIPE
         self._process = Popen(
             self._command,
-            stdin=PIPE, stdout=PIPE, stderr=PIPE,
+            stdin=PIPE, stdout=stdout, stderr=stderr,
             encoding="UTF-8"
         )
         if self._input is not None:
