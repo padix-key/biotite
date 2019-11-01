@@ -16,11 +16,14 @@ class IllustrateApp(LocalApp):
                  bin_path="illustrate"):
         super().__init__(bin_path)
         self.ignore_stdout()
-        self.ignore_stderr()
 
         self._structure = structure
         self._colors = colors
         self._radii = radii
+
+        self._x_rot = 0
+        self._y_rot = 0
+        self._z_rot = 0
 
         self._structure_file_name = temp_file("pdb")
         self._command_file_name = temp_file("inp")
@@ -54,16 +57,18 @@ class IllustrateApp(LocalApp):
             )
         lines.append("END")
 
-        # Preliminary: other roptions
+        lines.extend(["xrot", f"{self._x_rot:<.1f}"])
+        lines.extend(["yrot", f"{self._y_rot:<.1f}"])
+        lines.extend(["zrot", f"{self._z_rot:<.1f}"])
+
+        # Preliminary: other options
         lines.extend([
             "center",
             "auto",
             "trans",
             "0.,0.,0.",
             "scale",
-            "12.0",
-            "zrot",
-            "90.",
+            "10.0",
             "wor",
             "1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0",
             "1,0.0023,2.0,1.0,0.2",
@@ -81,3 +86,8 @@ class IllustrateApp(LocalApp):
         self.set_stdin("\n".join(lines) + "\n")
 
         super().run()
+    
+    def set_rotation(self, x=0, y=0, z=0):
+        self._x_rot = x
+        self._y_rot = y
+        self._z_rot = z
