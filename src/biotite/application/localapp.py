@@ -270,7 +270,11 @@ class LocalApp(Application, metaclass=abc.ABCMeta):
         # Check if applicaion terminated correctly
         exit_code = self.get_exit_code()
         if exit_code != 0:
-            err_msg = self.get_stderr().replace("\n", " ")
+            stderr = self.get_stderr()
+            if stderr is not None:
+                err_msg = self.get_stderr().replace("\n", " ")
+            else:
+                err_msg = ""
             raise SubprocessError(
                 f"'{self._bin_path}' returned with exit code {exit_code}: "
                 f"{err_msg}"
