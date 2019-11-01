@@ -3,14 +3,14 @@
 # information.
 
 __author__ = "Patrick Kunzmann"
-__all__ = ["IllustrateApplication"]
+__all__ = ["IllustrateApp"]
 
 from biotite.structure.io import save_structure
 from biotite.application import LocalApp
 from biotite import temp_file
 
 
-class IllustrateApplication(LocalApp):
+class IllustrateApp(LocalApp):
     
     def __init__(self, image_file, structure, colors, radii,
                  bin_path="illustrate"):
