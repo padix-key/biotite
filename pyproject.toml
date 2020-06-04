@@ -1,8 +1,55 @@
+[tool.poetry]
+name = "biotite"
+version = "0.22.0"
+description = "A comprehensive library for computational molecular biology"
+readme = "README.rst"
+license = "BSD-3-Clause"
+authors = [
+    "Patrick Kunzmann <padix.key@gmail.com>",
+    "Daniel Bauer",
+    "Tom David Müller"
+
+]
+homepage = "https://gecos.biotite-python.org"
+repository = "https://github.com/biotite-dev/gecos"
+documentation = "https://gecos.biotite-python.org"
+keywords = [
+    "Bioinformatics",
+    "Computational biology",
+    "Data visualization"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: BSD License",
+    "Natural Language :: English",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Topic :: Scientific/Engineering :: Bio-Informatics"
+]
+packages = [
+    { include = "biotite", from = "src" },
+]
+
+[tool.poetry.dependencies]
+requests = ">= 2.12"
+numpy = ">= 1.13"
+msgpack = ">= 0.5.6"
+
+#[tool.poetry.dev-dependencies]
+#pytest = "^5.2"
+#sphinx = "^3.0"
+#numpydoc = ">= 0.8"
+#matplotlib = "^3.0"
+
 [build-system]
-# Minimum requirements for the build system to execute.
 requires = [
-    "setuptools >= 0.30",
-    "wheel >= 0.30",
+    "poetry >= 1.0",
     "numpy >= 1.13",
     "cython >= 0.28"
 ]
+build-backend = "poetry.masonry.api"
