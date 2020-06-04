@@ -15,8 +15,7 @@ repository = "https://github.com/biotite-dev/gecos"
 documentation = "https://gecos.biotite-python.org"
 keywords = [
     "Bioinformatics",
-    "Computational biology",
-    "Data visualization"
+    "Computational biology"
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -34,17 +33,26 @@ classifiers = [
 packages = [
     { include = "biotite", from = "src" },
 ]
+include = [
+    "src/biotite/**/*.so",
+    "src/biotite/**/*.pyd"
+]
+build = "build.py"
+
 
 [tool.poetry.dependencies]
+python = "^3.6"
 requests = ">= 2.12"
 numpy = ">= 1.13"
 msgpack = ">= 0.5.6"
+
 
 #[tool.poetry.dev-dependencies]
 #pytest = "^5.2"
 #sphinx = "^3.0"
 #numpydoc = ">= 0.8"
 #matplotlib = "^3.0"
+
 
 [build-system]
 requires = [
