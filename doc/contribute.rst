@@ -232,7 +232,7 @@ Therefore, the *import* statements in ``test.py`` will look similar to this:
    ...
 
 Alternatively, you can install *Biotite* in development mode via
-`pip install -e .`.
+`poetry install`.
 
 If you are writing or using an extension module in Cython, consider using
 `pyximport` at the beginning of ``test.py``.
@@ -247,13 +247,11 @@ Unit tests
 
 In order to check if your new awesome code breaks anything in *Biotite*,
 you should run unit tests before you open a pull request.
-To achieve that, run the following command in the top-level directory.
+To achieve that, run ``pytest`` in the top-level directory.
 
 .. code-block:: console
 
-   $ python setup.py test
-
-Running unit test requires the `pytest` framework.
+   $ pytest
 
 Adding your own unit tests for your new module (if possible), is appreciated.
 The unit tests are found in the ``tests`` folder (big surprise!).
@@ -281,10 +279,9 @@ The Sphinx documentation is created using
 
 .. code-block:: console
 
-   $ python setup.py build_sphinx
+   $ sphinx-build doc doc/_build/doc
 
-in the top-level directory. The HTML output can be found under
-``doc/_build/html``.
+in the top-level directory.
 
 
 
@@ -293,6 +290,7 @@ Required packages
 
 The following packages are required for the complete build process:
    
+   - *poetry*
    - *numpy*
    - *scipy*
    - *networkx*

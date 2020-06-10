@@ -28,7 +28,7 @@ aforementioned packages.
 
 Some functions require some extra packages:
 
-   - **mdtraj** - Required for trajetory file I/O operations.
+   - **mdtraj** - Required for trajectory file I/O operations.
    - **matplotlib** - Required for plotting purposes.
 
 
@@ -99,19 +99,20 @@ contains all runtime and build dependencies for *Biotite*:
 
 Having the *Biotite* package always pointing to your directory containing the
 repository is also possible.
-Type the following in the top-level directory:
+*Biotite* uses the `Poetry <https://python-poetry.org/>`_ build system, that
+must be installed first.
+Then type the following in the top-level directory:
 
 .. code-block:: console
 
-   $ pip install -e .
+   $ poetry install
 
 To generate the wheels and source distribution for upload to PyPI (most
 probably you won't need that, but just in case), simply type:
 
 .. code-block:: console
 
-   $ python setup.py bdist_wheel
-   $ python setup.py sdist
+   $ poetry build
 
 You can find the created wheel and the source distribution in the ``dist``
 directory.
