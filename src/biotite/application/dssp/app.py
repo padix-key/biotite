@@ -69,7 +69,7 @@ class DsspApp(LocalApp):
     
     def evaluate(self):
         super().evaluate()
-        lines = self._out_file.read().split("\n")
+        lines = self._out_file.readlines()
         # Index where SSE records start
         sse_start = None
         for i, line in enumerate(lines):
