@@ -17,19 +17,20 @@ sequences.
 # Code source: Patrick Kunzmann
 # License: BSD 3 clause
 
-import biotite
+import numpy as np
+import matplotlib.pyplot as plt
+from biotite.application.mmseqs import MMseqsSearchApp
 import biotite.sequence as seq
 import biotite.sequence.io.fasta as fasta
 import biotite.sequence.io.genbank as gb
 import biotite.sequence.graphics as graphics
 import biotite.sequence.align as align
 import biotite.database.entrez as entrez
-import numpy as np
-import matplotlib.pyplot as plt
+
 
 # Download and read E. coli BL21 genome
 gb_file = gb.GenBankFile.read(
-    entrez.fetch("CP001509", None, "gb", "nuccore", "gb")
+    entrez.fetch("CP001509", ".", "gb", "nuccore", "gb")
 )
 annot_seq = gb.get_annotated_sequence(gb_file, include_only=["gene"])
 # Find leuL gene
@@ -41,20 +42,29 @@ leul_seq = annot_seq[leul_feature]
 
 # Download and read Salmonella enterica genome without annotations
 fasta_file = fasta.FastaFile.read(
-    entrez.fetch("CP019649", None, "fa", "nuccore", "fasta")
+    entrez.fetch("CP019649", ".", "fa", "nuccore", "fasta")
 )
 se_genome = fasta.get_sequence(fasta_file)
+
 # Find leuL in genome by local alignment
 matrix = align.SubstitutionMatrix.std_nucleotide_matrix()
 # Use general gap penalty to save RAM
-alignments = align.align_optimal(
-    leul_seq, se_genome, matrix, gap_penalty=-7, local=True
-)
+#app = MMseqsSearchApp(leul_seq, se_genome)
+#app.start()
+#app.join()
 # Do the same for reverse complement genome
-se_genome_rev = se_genome.reverse().complement()
-rev_alignments = align.align_optimal(
-    leul_seq, se_genome_rev, matrix, gap_penalty=-7, local=True
-)
+app = MMseqsSearchApp(leul_seq, se_genome.reverse().complement()[4865000:4867000])
+app.start()
+app.join()
+
+#print("Test")
+#ali = align.align_optimal(
+#    leul_seq, se_genome.reverse().complement(), matrix, gap_penalty=-7, local=True
+#)[0]
+#print(ali)
+#print()
+#print(ali.trace)
+exit()
 
 ########################################################################
 # Now that we have both alignments (forward and reverse strand),
