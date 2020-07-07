@@ -10,6 +10,7 @@ from tempfile import NamedTemporaryFile, gettempdir
 from subprocess import SubprocessError
 from ..localapp import LocalApp
 from ..application import AppState, requires_state
+from ...sequence.align.alignment import Alignment
 from ...sequence.io.fasta.file import FastaFile
 from ...sequence.io.fasta.convert import set_sequence
 from ...sequence.seqtypes import NucleotideSequence, ProteinSequence
@@ -80,8 +81,10 @@ class MMseqsSearchApp(LocalApp):
                     "qaln",
                     "taln",
                 ]),
-                "-s", "50.0",
-                "-k", "4"
+                #"-s", "5.0",
+                #"-k", "4",
+                #"--gap-open", str(2),
+                #"--gap-extend", str(2),
             ]
         )
         
@@ -107,6 +110,33 @@ class MMseqsSearchApp(LocalApp):
         with open(self._out_file.name, "r") as file:
             output = file.read()
         print(output)
+        print()
+        for i, line in enumerate(output.splitlines()):
+            splitted = line.split()
+            if len(splitted) == 0:
+                continue
+            elif len(splitted) != 11:
+                raise ValueError(
+                    f"Line {i+1} has {len(splitted)} values, expected 11"
+                )
+            query_id        = splitted[0]
+            target_id       = splitted[1]
+            score           = int(splitted[2])
+            identity        = float(splitted[3])
+            e_value         = float(splitted[4])
+            query_interval  = (int(splitted[5])-1, int(splitted[6]))
+            target_interval = (int(splitted[7])-1, int(splitted[8]))
+            trace = Alignment.trace_from_strings(
+                [splitted[9], splitted[10]]
+            )
+            trace[:,0] += query_interval[0]
+            trace[:,1] += target_interval[0]
+            alignment = Alignment(
+                [self._queries[0], self._target],
+                trace,
+                score
+            )
+            print(alignment)
     
     def clean_up(self):
         super().clean_up()
