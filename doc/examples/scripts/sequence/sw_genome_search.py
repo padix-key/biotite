@@ -46,40 +46,15 @@ fasta_file = fasta.FastaFile.read(
 )
 se_genome = fasta.get_sequence(fasta_file)
 
-# Find leuL in genome by local alignment
+
+# Find leuL in genome using MMseqs sequence search
 matrix = align.SubstitutionMatrix.std_nucleotide_matrix()
-# Use general gap penalty to save RAM
-#app = MMseqsSearchApp(leul_seq, se_genome)
-#app.start()
-#app.join()
-# Do the same for reverse complement genome
-print(len(se_genome) - 133800)
-#se_genome = se_genome[133806-100 : 133893+100].reverse().complement()
 se_genome = se_genome.reverse().complement()
-#print(se_genome)
-out_file = fasta.FastaFile()
-fasta.set_sequence(out_file, se_genome, "target")
-out_file.write("/home/kunzmann/data/coding/mmseqs/target.fasta")
-out_file = fasta.FastaFile()
-fasta.set_sequence(out_file, leul_seq, "query")
-out_file.write("/home/kunzmann/data/coding/mmseqs/query.fasta")
-print()
-exit()
-#app = MMseqsSearchApp(leul_seq, se_genome.reverse().complement()[4865900:4866100])
-app = MMseqsSearchApp(leul_seq, se_genome)
+app = MMseqsSearchApp(leul_seq, se_genome, matrix)
 app.start()
 print(app.get_command())
 print()
 app.join()
-
-#print("Test")
-#ali = align.align_optimal(
-#    leul_seq, se_genome.reverse().complement(), matrix, gap_penalty=-7, local=True
-#)[0]
-#print(ali)
-#print()
-#print(ali.trace)
-exit()
 
 ########################################################################
 # Now that we have both alignments (forward and reverse strand),

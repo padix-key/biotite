@@ -20,54 +20,59 @@ class MMseqsSearchApp(LocalApp):
     """
     """
     
-    def __init__(self, query, target, bin_path="mmseqs"):
+    def __init__(self, query, target, matrix, bin_path="mmseqs"):
         super().__init__(bin_path)
-        if isinstance(query, (tuple, list)):
-            self._queries = list(query)
-        else:
-            self._queries = [query]
+        #if isinstance(query, (tuple, list)):
+        #    self._queries = list(query)
+        #else:
+        #    self._queries = [query]
         self._target = target
+        self._query = query
+        self._matrix = matrix
 
-        seq_type = type(self._target)
-        if isinstance(self._target, NucleotideSequence):
-            self._search_type = 3
-        elif isinstance(self._target, ProteinSequence):
-            self._search_type = 1
-        else:
+        if not matrix.is_symmetric():
+            raise ValueError("A symmetric substitution matrix is required")
+        self._alph = matrix.get_alphabet1()
+        if not self._alph.extends(query.alphabet):
             raise TypeError(
-                f"MMseqs2 can only align nucleotide and protein sequences, "
-                f"not '{type(self._target).__name__}'"
+                "The query sequence's alphabet is incompatible with the "
+                "substitution matrix alphabet"
+            )
+        if not self._alph.extends(target.alphabet):
+            raise TypeError(
+                "The target sequence's alphabet is incompatible with the "
+                "substitution matrix alphabet"
             )
 
-        for query in self._queries:
-            if not isinstance(query, type(self._target)):
-                raise TypeError(
-                    "Query sequences must be the same sequence type as the "
-                    "target sequence"
-                )
-
-        self._query_files = [
-            NamedTemporaryFile("w", suffix=".fasta") for _ in self._queries
-        ]
+        self._query_file = NamedTemporaryFile("w", suffix=".fasta")
         self._target_file = NamedTemporaryFile("w", suffix=".fasta")
         self._out_file = NamedTemporaryFile("r", suffix=".out")
+        self._matrix_file = NamedTemporaryFile("w", suffix=".mat")
 
     def run(self):
         for sequence, file in zip(
-            self._queries + [self._target],
-            self._query_files + [self._target_file]
+            (self._query, self._target),
+            (self._query_file, self._target_file)
         ):
             in_file = FastaFile()
             set_sequence(in_file, sequence)
             in_file.write(file)
             file.flush()
+        self._matrix_file.write(str(self._matrix))
+        self._matrix_file.flush()
         
         self.set_arguments(
-            ["easy-search"] +
-            [file.name for file in self._query_files] +
-            [self._target_file.name, self._out_file.name, gettempdir()] +
             [
-                "--search-type", str(self._search_type),
+                "easy-search",
+                self._query_file.name,
+                self._target_file.name,
+                self._out_file.name,
+                gettempdir(),
+                "--alph-size", str(len(self._alph)),
+                "--seed-sub-mat", self._matrix_file.name,
+                "--sub-mat", self._matrix_file.name,
+                "--dbtype", "1",
+                "--search-type", "1",
                 "--format-output", ",".join([
                     "query",
                     "target",
@@ -140,7 +145,10 @@ class MMseqsSearchApp(LocalApp):
     
     def clean_up(self):
         super().clean_up()
-        for file in self._query_files + [self._target_file, self._out_file]:
+        for file in [
+            self._query_file, self._target_file,
+            self._out_file, self._matrix_file
+        ]:
             file.close()
     
     @requires_state(AppState.JOINED)
