@@ -46,8 +46,8 @@ class MMseqsSearchApp(LocalApp):
 
         self._query_file = NamedTemporaryFile("w", suffix=".fasta")
         self._target_file = NamedTemporaryFile("w", suffix=".fasta")
-        self._out_file = NamedTemporaryFile("r", suffix=".out")
-        self._matrix_file = NamedTemporaryFile("w", suffix=".mat")
+        self._out_file = NamedTemporaryFile("r", suffix=".results")
+        self._matrix_file = NamedTemporaryFile("w", suffix=".out")
 
     def run(self):
         for sequence, file in zip(
@@ -58,9 +58,19 @@ class MMseqsSearchApp(LocalApp):
             set_sequence(in_file, sequence)
             in_file.write(file)
             file.flush()
-        self._matrix_file.write(str(self._matrix))
-        self._matrix_file.flush()
+        #self._matrix_file.write(str(self._matrix))
+        #self._matrix_file.flush()
+        """
+        with open("matrix_test.out", "w") as f:
+            matrix_str = "\n".join(
+                ["\t".join(line.split())
+                 for line in str(self._matrix).splitlines()]
+            )
+            print(matrix_str)
+            f.write(matrix_str)
+        """
         
+        MATRIX_FILE = "matrix_test.out"
         self.set_arguments(
             [
                 "easy-search",
@@ -68,9 +78,13 @@ class MMseqsSearchApp(LocalApp):
                 self._target_file.name,
                 self._out_file.name,
                 gettempdir(),
-                "--alph-size", str(len(self._alph)),
-                "--seed-sub-mat", self._matrix_file.name,
-                "--sub-mat", self._matrix_file.name,
+                "-s", "10.0",
+                "-k", "5",
+                #"--alph-size", str(len(self._alph)),
+                #"--seed-sub-mat", self._matrix_file.name,
+                #"--sub-mat", self._matrix_file.name,
+                "--seed-sub-mat", MATRIX_FILE,
+                "--sub-mat", MATRIX_FILE,
                 "--dbtype", "1",
                 "--search-type", "1",
                 "--format-output", ",".join([
@@ -96,15 +110,6 @@ class MMseqsSearchApp(LocalApp):
         super().run()
     
     def evaluate(self):
-        exit_code = self.get_exit_code()
-        if exit_code != 0:
-            # MMseqs uses STDOUT for error messages
-            err_msg = self.get_stdout()
-            raise SubprocessError(
-                f"MMseqs2 returned with exit code {exit_code}: "
-                f"{err_msg}"
-            )
-
         super().evaluate()
 
         # Somehow reading the file with
@@ -137,7 +142,7 @@ class MMseqsSearchApp(LocalApp):
             trace[:,0] += query_interval[0]
             trace[:,1] += target_interval[0]
             alignment = Alignment(
-                [self._queries[0], self._target],
+                [self._query, self._target],
                 trace,
                 score
             )
