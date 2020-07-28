@@ -2,14 +2,21 @@
 # under the 3-Clause BSD License. Please see 'LICENSE.rst' for further
 # information.
 
+# THIS FILE IS DEPRECAtED AND EXISTS ONLY FOR COMPATIBILITY WITH OLDER
+# PIP VERSIONS.
+# POETRY IS NOW USED TO BUILD THE PACKAGE.
+
+
 import warnings
 warnings.warn(
-    "Usage of the setup.py is deprecated. "
+    "Usage of the setup.py is deprecated.\n"
     "Please use Poetry (https://python-poetry.org/) to install the package in "
     "development mode (`poetry install`) or to build the package "
-    "(`poetry build`). "
+    "(`poetry build`).\n"
+    "If you encounter this message while installing the package via "
+    "`pip install .` or `pip install biotite`, please update pip to the "
+    "newest version (at least 19.0)."
 )
-raise
 
 
 import sys
