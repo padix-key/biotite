@@ -16,13 +16,10 @@ import warnings
 from sphinx_gallery.sorting import FileNameSortKey
 import matplotlib
 
-doc_path = dirname(realpath(__file__))
-
-# Include biotite/src in PYTHONPATH
-# in order to import the 'biotite' package
-package_path = join(dirname(doc_path), "src")
-sys.path.insert(0, package_path)
 import biotite
+
+doc_path = dirname(realpath(__file__))
+package_path = join(dirname(doc_path), "src")
 
 # Include biotite/doc in PYTHONPATH
 # in order to import modules for API doc generation etc.
@@ -40,7 +37,11 @@ matplotlib.rcdefaults()
 apidoc.create_api_doc(package_path, join(doc_path, "apidoc"))
 
 # Creation of tutorial *.rst files from Python script
-tutorial.create_tutorial("tutorial_src", "tutorial")
+if not "plot_gallery=0" in sys.argv:
+    tutorial.create_tutorial(
+        join("tutorial", "src"),
+        join("tutorial", "target")
+    )
 
 
 #### General ####
@@ -70,6 +71,7 @@ master_doc = "index"
 project = "Biotite"
 copyright = "2017-2020, the Biotite contributors"
 version = biotite.__version__
+release = biotite.__version__
 
 exclude_patterns = ["build"]
 
@@ -121,15 +123,22 @@ sphinx_gallery_conf = {
     "within_subsection_order"   : FileNameSortKey,
     # Do not run example scripts with a trailing '_noexec'
     "filename_pattern"          : "^((?!_noexec).)*$",
-    "ignore_pattern"            : ".*ignore\.py",
-    "backreferences_dir"        : False,
+    "ignore_pattern"            : "(.*ignore\.py)|(.*pymol\.py)",
+    "backreferences_dir"        : None,
     "download_section_examples" : False,
     # Never report run time
     "min_reported_time"         : sys.maxsize,
     "default_thumb_file"        : join(
         doc_path, "static/assets/general/biotite_icon_thumb.png"
     ),
-    "image_scrapers": ("matplotlib", scraper.static_image_scraper),
+    "image_scrapers"            : (
+        "matplotlib",
+        scraper.static_image_scraper,
+        scraper.pymol_scraper
+    ),
+    "matplotlib_animations"     : True,
+    "backreferences_dir"        : "examples/backreferences",
+    "doc_module"                : ("biotite",),
 }
 
 
