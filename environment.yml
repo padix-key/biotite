@@ -34,3 +34,4 @@ dependencies:
   - muscle
   - sra-tools
   - viennarna
+  - openbabel
