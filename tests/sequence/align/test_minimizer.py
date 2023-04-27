@@ -16,13 +16,10 @@ import biotite.sequence.align as align
         [None, 2, 5, 10, 25],
         [False, True]
     )
-    #[(0, 5, False)]
 )
 def test_minimize(seed, window, from_sequence):
     K = 10
     LENGTH = 1000
-    #K = 2
-    #LENGTH = 10
 
     sequence = seq.NucleotideSequence(ambiguous=False)
     np.random.seed(seed)
