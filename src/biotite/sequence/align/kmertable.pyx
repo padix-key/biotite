@@ -253,18 +253,18 @@ cdef class KmerTable:
         ----------
         k : int
             The length of the *k-mers*.
-        sequences : iterable object of Sequence
+        sequences : sized iterable object of Sequence
             The sequences to get the *k-mer* positions from.
             These sequences must have equal alphabets, or one of these
             sequences must have an alphabet that extends the alphabets
             of all other sequences.
-        ref_ids : iterable object of int, optional
+        ref_ids : sized iterable object of int, optional
             The reference IDs for the given sequences.
             These are used to identify the corresponding sequence for a
             *k-mer* match.
             By default the IDs are counted from *0* to *n* for *n*
             input `sequences`.
-        ignore_masks : iterable object of (ndarray, dtype=bool), optional
+        ignore_masks : sized iterable object of (ndarray, dtype=bool), optional
             Sequence positions to ignore.
             *k-mers* that involve these sequence positions are not added
             to the table.
@@ -402,18 +402,18 @@ cdef class KmerTable:
             The :class:`KmerAlphabet` to use for the new table.
             Should be the same alphabet that was used to calculate the
             input *kmers*.
-        kmers : iterable object of (ndarray, dtype=np.int64)
+        kmers : sized iterable object of (ndarray, dtype=np.int64)
             Arrays containing the symbol codes for *k-mers* from a
             sequence.
             For each array the index of the *k-mer* code in the array,
             is stored in the table.
-        ref_ids : iterable object of int, optional
+        ref_ids : sized iterable object of int, optional
             The reference IDs for the sequences.
             These are used to identify the corresponding sequence for a
             *k-mer* match.
             By default the IDs are counted from *0* to *n* for *n*
             input `kmers`.
-        masks : iterable object of (ndarray, dtype=bool), optional
+        masks : sized iterable object of (ndarray, dtype=bool), optional
             A *k-mer* code at a position, where the corresponding mask
             is false, is not added to the table.
             By default, all positions are added.
