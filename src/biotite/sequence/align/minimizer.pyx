@@ -4,7 +4,7 @@
 
 __name__ = "biotite.sequence.align"
 __author__ = "Patrick Kunzmann"
-__all__ = ["Minimizer"]
+__all__ = ["Minimizer", "RandomPermutation"]
 
 cimport cython
 cimport numpy as np
@@ -27,6 +27,14 @@ class Minimizer:
 
     class Permutation(metaclass=abc.ABCMeta):
 
+        def __init__(self, kmer_alphabet):
+            self._kmer_alphabet = kmer_alphabet
+        
+        @property
+        def kmer_alphabet(self):
+            return self._kmer_alphabet
+
+
         @abc.abstractmethod
         def permute(self, kmers):
             pass
@@ -34,6 +42,12 @@ class Minimizer:
 
     def __init__(self, kmer_alphabet, permutation=None):
         self._kmer_alph = kmer_alphabet
+        if permutation is not None:
+            if permutation.kmer_alphabet != self._kmer_alph:
+                raise ValueError(
+                    "The KmerAlphabet of the Permutation must be equal "
+                    "to the KmerAlphabet of the Minimizer"
+                )
         self._permutation = permutation
     
 
@@ -136,7 +150,6 @@ def _minimize(int64[:] kmers, uint32 window):
         np.asarray(minimizers)[:n_minimizers]
     )
 
-
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
@@ -163,7 +176,6 @@ cdef _chunk_wise_forward_argcummin(int64[:] values, uint32 chunk_size):
         min_pos[seq_i] = current_min_i
     
     return min_pos
-
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -205,3 +217,25 @@ cdef _chunk_wise_reverse_argcummin(int64[:] values, uint32 chunk_size):
         min_pos[seq_i] = current_min_i
     
     return min_pos
+
+
+
+
+class RandomPermutation(Minimizer.Permutation):
+    """
+    Notes
+    -----
+
+    This class uses a lookup table for achieve permutation.
+    Hence, the memory consumption is :math:`8 n^k` bytes,
+    where :math:`n` is the size of the base alphabet and :math:`k` is
+    the *k-mer* size.
+    """
+
+    def __init__(self, kmer_alphabet, seed=None):
+        super().__init__(kmer_alphabet)
+        rng = np.random.default_rng(seed)
+        self._permutation_table = rng.permutation(len(kmer_alphabet))
+    
+    def permute(self, kmers):
+        return self._permutation_table[kmers]
