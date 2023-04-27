@@ -18,6 +18,10 @@ import biotite.sequence.align as align
     )
 )
 def test_minimize(seed, window, from_sequence):
+    """
+    Compare the fast minimizer identification algorithm against
+    a trivial implementation based on randomized input.
+    """
     K = 10
     LENGTH = 1000
 

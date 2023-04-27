@@ -24,6 +24,62 @@ DEF MAX_INT_64 = 9223372036854775807
 
 
 class Minimizer:
+    """
+    Find the *minimizers* from a given sequence.
+
+    In a given window of *k-mers*, the minimizer is the *k-mer* with the
+    minimum *k-mer* code :footcite:`Roberts2004`.
+
+    Parameters
+    ----------
+    kmers : ndarray, dtype=np.int64
+        The *k-mer* codes representing the sequence to find the
+        minimizers in.
+    window : int, optional
+        The size of the rolling window, where the minimizers are
+        searched in.
+        The window size must be at least 2.
+        By default, the minimizer of the entire sequence is taken, which
+        is simply the *k-mer* code.
+    permutation : Permutation
+        If set, the *k-mer* order is permuted, i.e.
+        the minimizer is now the *k-mer* with the lowest permuted value.
+        By default, the standard order of the :class:`KmerAlphabet` is
+        used.
+        This standrd order is often the lexicographical order, which is
+        known to yield suboptimal *density* in many cases
+        :footcite:`Roberts2004`.
+
+    Notes
+    -----
+    For minimizer computation within a rolling window a fast
+    algorithm :footcite:`VanHerk1992` is used, whose runtime scales
+    linerly with the length of `kmers` and not with the size of
+    `window`.
+
+    References
+    ----------
+    
+    .. footbibliography::
+
+    Examples
+    --------
+
+    >>>
+
+    Minimizers are commonly used to reduce the size of sequence data
+    drastically, while retaining important information to a certain
+    degree.
+    For example, only the minimizers can be stored in a
+    :class:`KmerTable` instead of all *k-mers*:
+
+    >>>
+
+    Although the data is reduced, matching is still guanrateed to work,
+    if the two sequences share identity in the given window:
+
+    >>>
+    """
 
     class Permutation(metaclass=abc.ABCMeta):
 
@@ -64,6 +120,7 @@ class Minimizer:
     def minimize_kmers(self, kmers, window=None):
         if self._permutation is not None:
             kmers = self._permutation.permute(kmers)
+            # TODO permutation should not change k-mer values
 
         if window is None:
             min_index = np.argmin(kmers)
@@ -80,7 +137,7 @@ class Minimizer:
                 raise ValueError(
                     "The number of k-mers is smaller than the window size"
                 )
-            return _minimize(kmers, window)
+            return _minimize(kmers.astype(np.int64, copy=False), window)
     
 
 @cython.boundscheck(False)
