@@ -42,11 +42,6 @@ def test_minimize(seed, window, from_sequence):
         # Remove duplicates
         ref_minimizer_pos = np.unique(ref_minimizer_pos)
         ref_minimizers = kmers[ref_minimizer_pos]
-    print(kmers)
-    print()
-    print(ref_minimizer_pos)
-    print(ref_minimizers)
-    print()
     
     minimizer = align.Minimizer(kmer_alph)
     if from_sequence:
@@ -57,9 +52,6 @@ def test_minimize(seed, window, from_sequence):
         test_minimizer_pos, test_minimizers = minimizer.minimize_kmers(
             kmers, window
         )
-        print(test_minimizer_pos)
-        print(test_minimizers)
-        print()
     
     assert test_minimizer_pos.tolist() == ref_minimizer_pos.tolist()
     assert test_minimizers.tolist() == ref_minimizers.tolist()
