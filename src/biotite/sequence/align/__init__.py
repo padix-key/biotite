@@ -40,6 +40,7 @@ from .kmersimilarity import *
 from .localgapped import *
 from .localungapped import *
 from .matrix import *
+from .minimizer import *
 from .multiple import *
 from .pairwise import *
 from .statistics import *
