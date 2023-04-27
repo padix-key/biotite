@@ -19,7 +19,8 @@ ctypedef np.int64_t int64
 ctypedef np.uint32_t uint32
 
 
-cdef MAX_INT_64 = np.iinfo(np.int64).max
+# Obtained from 'np.iinfo(np.int64).max'
+DEF MAX_INT_64 = 9223372036854775807
 
 
 class Minimizer:
@@ -42,7 +43,7 @@ class Minimizer:
                 raise ValueError(
                     "The sequence's alphabet does not fit the k-mer alphabet"
                 )
-        kmers = self.create_kmers(sequence.code)
+        kmers = self._kmer_alph.create_kmers(sequence.code)
         return self.minimize_kmers(kmers, window)
     
 
@@ -61,15 +62,23 @@ class Minimizer:
         else:
             if window < 2:
                 raise ValueError("Window size must be at least 2")
+            if len(kmers) < window:
+                raise ValueError(
+                    "The number of k-mers is smaller than the window size"
+                )
             return _minimize(kmers, window)
     
 
-#@cython.boundscheck(False)
-#@cython.wraparound(False)
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def _minimize(int64[:] kmers, uint32 window):
     """
     Implementation of the algorithm originally devised by
     Marcel van Herk.
+
+    In this implmentation the frame is chosen differently:
+    For a position 'x' the frame ranges from 'x' to 'x + window-1'
+    instead of 'x - (window-1)/2' to 'x + (window-1)/2'.
     """
     cdef uint32 seq_i
     
@@ -82,38 +91,26 @@ def _minimize(int64[:] kmers, uint32 window):
     cdef uint32 n_minimizers = 0
 
     # Variables for the position of the previous cumulative minimum
-    cdef uint32 prev_argcummin
+    # Assign an value that can never occur for the start,
+    # as in the beginning there is no previous value
+    cdef uint32 prev_argcummin = kmers.shape[0]
     # Variables for the position of the current cumulative minimum
     cdef uint32 combined_argcummin, forward_argcummin, reverse_argcummin
     # Variables for the current cumulative minimum
     cdef int64 combined_cummin, forward_cummin, reverse_cummin
     # Variables for cumulative minima at all positions
-    cdef uint32[:] forward_argcummins = _chunk_wise_argcummin(
-        kmers, window, 0
+    cdef uint32[:] forward_argcummins = _chunk_wise_forward_argcummin(
+        kmers, window
     )
-    cdef uint32[:] reverse_argcummins = _chunk_wise_argcummin(
-        # Offset needs to be added for the reverse pass,
-        # so that the chunks of forward and reverse pass stay aligned,
-        # if the number of k-mers is not a multiple of the window size
-        kmers[::-1], window, kmers.shape[0] % window
-    )[::-1]
-
-    #print(np.asarray(kmers))
-    print(np.asarray(forward_argcummins))
-    #print(kmers.shape[0] % window)
-    print(kmers.shape[0] - 1 - np.asarray(reverse_argcummins))
-    print(np.asarray(kmers)[np.asarray(forward_argcummins)])
-    print(np.asarray(kmers)[kmers.shape[0] - 1 - np.asarray(reverse_argcummins)])
-    #print()
+    cdef uint32[:] reverse_argcummins = _chunk_wise_reverse_argcummin(
+        kmers, window
+    )
 
     for seq_i in range(n_windows):
         forward_argcummin = forward_argcummins[seq_i + window - 1]
-        # Important: arguments of reverse pass start from the other end
-        # -> transform index so it starts from the correct end
-        reverse_argcummin = kmers.shape[0] - 1 - reverse_argcummins[seq_i]
+        reverse_argcummin = reverse_argcummins[seq_i]
         forward_cummin = kmers[forward_argcummin]
         reverse_cummin = kmers[reverse_argcummin]
-        print("M", forward_cummin, reverse_cummin)
         
         # At ties the leftmost position is taken,
         # which stems from the reverse pass
@@ -123,7 +120,6 @@ def _minimize(int64[:] kmers, uint32 window):
         else:
             combined_argcummin = reverse_argcummin
             combined_cummin = reverse_cummin
-        print(combined_argcummin, combined_cummin)
         
         if combined_argcummin != prev_argcummin:
             # A new minimizer is observed
@@ -134,17 +130,17 @@ def _minimize(int64[:] kmers, uint32 window):
             prev_argcummin = combined_argcummin
         # If the same minimizer position was observed before,
         # the duplicate is simply ignored
-    
-    print()
+
     return (
         np.asarray(mininizer_pos)[:n_minimizers],
         np.asarray(minimizers)[:n_minimizers]
     )
 
 
-#@cython.boundscheck(False)
-#@cython.wraparound(False)
-def _chunk_wise_argcummin(int64[:] values, uint32 chunk_size, uint32 chunk_offset):
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+cdef _chunk_wise_forward_argcummin(int64[:] values, uint32 chunk_size):
     """
     Argument of the cumulative minimum.
     """
@@ -157,11 +153,53 @@ def _chunk_wise_argcummin(int64[:] values, uint32 chunk_size, uint32 chunk_offse
     # Any actual value will be smaller than this placeholder
     current_min = MAX_INT_64
     for seq_i in range(values.shape[0]):
-        if seq_i % chunk_size == chunk_offset:
+        if seq_i % chunk_size == 0:
             # New chunk begins
             current_min = MAX_INT_64
         current_val = values[seq_i]
         if current_val < current_min:
+            current_min_i = seq_i
+            current_min = current_val
+        min_pos[seq_i] = current_min_i
+    
+    return min_pos
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+cdef _chunk_wise_reverse_argcummin(int64[:] values, uint32 chunk_size):
+    """
+    The same as above but starting from the other end and iterating
+    backwards.
+    Separation into two functions leads to code duplication.
+    However, single implemention with reversed `values` as input
+    has some disadvantages:
+
+    - Indices must be transformed so that they point to the
+      non-reversed `values`
+    - There are issues in selecting the leftmost argument
+    - An offset is necessary to ensure alignment of chunks with forward
+      pass
+    
+    Hence, a separate 'reverse' variant of the function was implemented.
+    """
+    cdef uint32 seq_i
+
+    cdef uint32 current_min_i = 0
+    cdef int64 current_min, current_val
+    cdef uint32[:] min_pos = np.empty(values.shape[0], dtype=np.uint32)
+    
+    current_min = MAX_INT_64
+    for seq_i in reversed(range(values.shape[0])):
+        # The chunk beginning is a small difference to forward
+        # implementation, as it begins on the left of the chunk border
+        if seq_i % chunk_size == chunk_size - 1:
+            current_min = MAX_INT_64
+        current_val = values[seq_i]
+        # The '<=' is a small difference to forward implementation
+        # to enure the loftmost argument is selected
+        if current_val <= current_min:
             current_min_i = seq_i
             current_min = current_val
         min_pos[seq_i] = current_min_i
