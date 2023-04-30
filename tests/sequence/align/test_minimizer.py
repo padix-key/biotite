@@ -13,11 +13,12 @@ import biotite.sequence.align as align
     "seed, window, from_sequence",
     itertools.product(
         range(20),
-        [None, 2, 5, 10, 25],
+        [2, 5, 10, 25],
+        [False, True],
         [False, True]
     )
 )
-def test_minimize(seed, window, from_sequence):
+def test_minimize(seed, window, from_sequence, use_permutation):
     """
     Compare the fast minimizer identification algorithm against
     a trivial implementation based on randomized input.
@@ -31,28 +32,27 @@ def test_minimize(seed, window, from_sequence):
     kmer_alph = align.KmerAlphabet(sequence.alphabet, K)
     kmers = kmer_alph.create_kmers(sequence.code)
 
-    if window is None:
-        ref_minimizer_pos = np.array([np.argmin(kmers)])
-        ref_minimizers = np.array([kmers[np.argmin(kmers)]])
+    # Use an inefficient but simple algorithm for comparison
+    ref_minimizer_pos = np.array([
+        np.argmin(kmers[i : i + window]) + i
+        for i in range(len(kmers) - (window - 1))
+    ])
+    # Remove duplicates
+    ref_minimizer_pos = np.unique(ref_minimizer_pos)
+    ref_minimizers = kmers[ref_minimizer_pos]
+
+    if use_permutation:
+        permutation = align.RandomPermutation(kmer_alph)
     else:
-        # Use an inefficient but simple algorithm for comparison
-        ref_minimizer_pos = np.array([
-            np.argmin(kmers[i : i + window]) + i
-            for i in range(len(kmers) - (window - 1))
-        ])
-        # Remove duplicates
-        ref_minimizer_pos = np.unique(ref_minimizer_pos)
-        ref_minimizers = kmers[ref_minimizer_pos]
+        permutation = None
     
-    minimizer = align.Minimizer(kmer_alph)
+    minimizer_rule = align.MinimizerRule(kmer_alph, window, permutation)
     if from_sequence:
-        test_minimizer_pos, test_minimizers = minimizer.minimize(
-            sequence, window
-        )
+        test_minimizer_pos, test_minimizers \
+            = minimizer_rule.select(sequence)
     else:
-        test_minimizer_pos, test_minimizers = minimizer.minimize_kmers(
-            kmers, window
-        )
+        test_minimizer_pos, test_minimizers \
+            = minimizer_rule.select_from_kmers(kmers)
     
     assert test_minimizer_pos.tolist() == ref_minimizer_pos.tolist()
     assert test_minimizers.tolist() == ref_minimizers.tolist()

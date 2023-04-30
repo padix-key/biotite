@@ -4,12 +4,11 @@
 
 __name__ = "biotite.sequence.align"
 __author__ = "Patrick Kunzmann"
-__all__ = ["Minimizer", "RandomPermutation"]
+__all__ = ["MinimizerRule"]
 
 cimport cython
 cimport numpy as np
 
-import abc
 import numpy as np
 from .kmeralphabet import KmerAlphabet
 from ..alphabet import AlphabetError
@@ -23,39 +22,51 @@ ctypedef np.uint32_t uint32
 DEF MAX_INT_64 = 9223372036854775807
 
 
-class Minimizer:
+class MinimizerRule:
     """
+    MinimizerRule(kmer_alphabet, window, permutation=None)
+
     Find the *minimizers* from a given sequence.
 
-    In a given window of *k-mers*, the minimizer is the *k-mer* with the
-    minimum *k-mer* code :footcite:`Roberts2004`.
+    In a rolling window of *k-mers*, the minimizer is defined as the
+    *k-mer* with the minimum *k-mer* code :footcite:`Roberts2004`.
+    If the same minimum *k-mer* appears twice in a window, the leftmost
+    *k-mer* is selected as minimizer.
 
     Parameters
     ----------
-    kmers : ndarray, dtype=np.int64
-        The *k-mer* codes representing the sequence to find the
-        minimizers in.
-    window : int, optional
+    kmer_alphabet : KmerAlphabet
+        The *k-mer* alphabet that defines the *k-mer* size and the type
+        of sequence this :class:`MinimizerRule` can be applied on.
+    window : int
         The size of the rolling window, where the minimizers are
         searched in.
         The window size must be at least 2.
-        By default, the minimizer of the entire sequence is taken, which
-        is simply the *k-mer* code.
     permutation : Permutation
         If set, the *k-mer* order is permuted, i.e.
-        the minimizer is now the *k-mer* with the lowest permuted value.
+        the minimizer is chosen based on the ordering of the values from
+        :class:`Permutation.permute()`.
         By default, the standard order of the :class:`KmerAlphabet` is
         used.
-        This standrd order is often the lexicographical order, which is
+        This standard order is often the lexicographical order, which is
         known to yield suboptimal *density* in many cases
         :footcite:`Roberts2004`.
+    
+    Attributes
+    ----------
+    kmer_alphabet : KmerAlphabet
+        The *k-mer* alphabet.
+    window : int
+        The window size.
+    permutation : Permutation
+        The permutation.
 
     Notes
     -----
-    For minimizer computation within a rolling window a fast
-    algorithm :footcite:`VanHerk1992` is used, whose runtime scales
-    linerly with the length of `kmers` and not with the size of
-    `window`.
+    For minimizer computation a fast algorithm :footcite:`VanHerk1992`
+    is used, whose runtime scales linearly with the length of the
+    sequence and is constant with regard to the size of the rolling
+    window.
 
     References
     ----------
@@ -81,73 +92,122 @@ class Minimizer:
     >>>
     """
 
-    class Permutation(metaclass=abc.ABCMeta):
 
-        def __init__(self, kmer_alphabet):
-            self._kmer_alphabet = kmer_alphabet
-        
-        @property
-        def kmer_alphabet(self):
-            return self._kmer_alphabet
-
-
-        @abc.abstractmethod
-        def permute(self, kmers):
-            pass
-
-
-    def __init__(self, kmer_alphabet, permutation=None):
+    def __init__(self, kmer_alphabet, window, permutation=None):
+        if window < 2:
+                raise ValueError("Window size must be at least 2")
+        self._window = window
         self._kmer_alph = kmer_alphabet
-        if permutation is not None:
-            if permutation.kmer_alphabet != self._kmer_alph:
-                raise ValueError(
-                    "The KmerAlphabet of the Permutation must be equal "
-                    "to the KmerAlphabet of the Minimizer"
-                )
         self._permutation = permutation
     
+    
+    @property
+    def kmer_alphabet(self):
+        return self._kmer_alph
+    
+    @property
+    def window(self):
+        return self._window
 
-    def minimize(self, sequence, window=None, bint alphabet_check=True):
+    @property
+    def permutation(self):
+        return self._permutation
+    
+
+    def select(self, sequence, bint alphabet_check=True):
+        """
+        select(sequence, alphabet_check=True)
+
+        Obtain all overlapping *k-mers* from a sequence and select
+        the minimizers from them.
+
+        Parameters
+        ----------
+        sequence : Sequence
+            The sequence to find the minimizers in.
+            Must be compatible with the given `kmer_alphabet`
+        alphabet_check: bool, optional
+            If set to false, the compatibility between the alphabets
+            is not checked to gain additional performance.
+        
+        Returns
+        -------
+        minimizers_indices : ndarray, dtype=np.uint32
+            The sequence indices where the minimizer *k-mers* start.
+        minimizers : ndarray, dtype=np.int64
+            The *k-mers* that are the selected minimizers, returned as
+            *k-mer* code.
+        
+        Notes
+        -----
+        Duplicate minimizers are omitted, i.e. if two windows have the
+        same minimizer position, the return values contain this
+        minimizer only once.
+        """
         if alphabet_check:
             if not self._kmer_alph.base_alphabet.extends(sequence.alphabet):
                 raise ValueError(
                     "The sequence's alphabet does not fit the k-mer alphabet"
                 )
         kmers = self._kmer_alph.create_kmers(sequence.code)
-        return self.minimize_kmers(kmers, window)
+        return self.select_from_kmers(kmers)
     
 
-    def minimize_kmers(self, kmers, window=None):
-        if self._permutation is not None:
-            kmers = self._permutation.permute(kmers)
-            # TODO permutation should not change k-mer values
+    def select_from_kmers(self, kmers):
+        """
+        select_from_kmers(kmers)
 
-        if window is None:
-            min_index = np.argmin(kmers)
-            return (
-                # Create an array containing a single element
-                np.array([min_index], dtype=np.uint32),
-                # Also single element as array -> slice of size 1
-                kmers[min_index : min_index+1],
-            )
+        Select all overlapping *k-mers*.
+
+        Parameters
+        ----------
+        kmers : ndarray, dtype=np.int64
+            The *k-mer* codes representing the sequence to find the
+            minimizers in.
+            The *k-mer* codes correspond to the *k-mers* encoded by the
+            given `kmer_alphabet`.
+        alphabet_check: bool, optional
+            If set to false, the compatibility between the alphabets
+            is not checked to gain additional performance.
+        
+        Returns
+        -------
+        minimizers_indices : ndarray, dtype=np.uint32
+            The indices in the input *k-mer* sequence where a minimizer
+            appears.
+        minimizers : ndarray, dtype=np.int64
+            The corresponding *k-mers* codes of the minimizers.
+        
+        Notes
+        -----
+        Duplicate minimizers are omitted, i.e. if two windows have the
+        same minimizer position, the return values contain this
+        minimizer only once.
+        """
+        if self._permutation is None:
+            ordering = kmers
         else:
-            if window < 2:
-                raise ValueError("Window size must be at least 2")
-            if len(kmers) < window:
-                raise ValueError(
-                    "The number of k-mers is smaller than the window size"
-                )
-            return _minimize(kmers.astype(np.int64, copy=False), window)
+            ordering = self._permutation.permute(kmers)
+
+        if len(kmers) < self._window:
+            raise ValueError(
+                "The number of k-mers is smaller than the window size"
+            )
+        return _minimize(
+            kmers.astype(np.int64, copy=False),
+            ordering.astype(np.int64, copy=False),
+            self._window
+        )
     
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def _minimize(int64[:] kmers, uint32 window):
+def _minimize(int64[:] kmers, int64[:] ordering, uint32 window):
     """
     Implementation of the algorithm originally devised by
     Marcel van Herk.
 
-    In this implmentation the frame is chosen differently:
+    In this implementation the frame is chosen differently:
     For a position 'x' the frame ranges from 'x' to 'x + window-1'
     instead of 'x - (window-1)/2' to 'x + (window-1)/2'.
     """
@@ -171,10 +231,10 @@ def _minimize(int64[:] kmers, uint32 window):
     cdef int64 combined_cummin, forward_cummin, reverse_cummin
     # Variables for cumulative minima at all positions
     cdef uint32[:] forward_argcummins = _chunk_wise_forward_argcummin(
-        kmers, window
+        ordering, window
     )
     cdef uint32[:] reverse_argcummins = _chunk_wise_reverse_argcummin(
-        kmers, window
+        ordering, window
     )
 
     for seq_i in range(n_windows):
@@ -187,16 +247,14 @@ def _minimize(int64[:] kmers, uint32 window):
         # which stems from the reverse pass
         if forward_cummin < reverse_cummin:
             combined_argcummin = forward_argcummin
-            combined_cummin = forward_cummin
         else:
             combined_argcummin = reverse_argcummin
-            combined_cummin = reverse_cummin
         
         if combined_argcummin != prev_argcummin:
             # A new minimizer is observed
             # -> append it to return value
             mininizer_pos[n_minimizers] = combined_argcummin
-            minimizers[n_minimizers] = combined_cummin
+            minimizers[n_minimizers] = kmers[combined_argcummin]
             n_minimizers += 1
             prev_argcummin = combined_argcummin
         # If the same minimizer position was observed before,
@@ -274,25 +332,3 @@ cdef _chunk_wise_reverse_argcummin(int64[:] values, uint32 chunk_size):
         min_pos[seq_i] = current_min_i
     
     return min_pos
-
-
-
-
-class RandomPermutation(Minimizer.Permutation):
-    """
-    Notes
-    -----
-
-    This class uses a lookup table for achieve permutation.
-    Hence, the memory consumption is :math:`8 n^k` bytes,
-    where :math:`n` is the size of the base alphabet and :math:`k` is
-    the *k-mer* size.
-    """
-
-    def __init__(self, kmer_alphabet, seed=None):
-        super().__init__(kmer_alphabet)
-        rng = np.random.default_rng(seed)
-        self._permutation_table = rng.permutation(len(kmer_alphabet))
-    
-    def permute(self, kmers):
-        return self._permutation_table[kmers]
