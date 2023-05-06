@@ -10,7 +10,7 @@ import biotite.sequence.align as align
 
 
 @pytest.mark.parametrize(
-    "seed, window, from_sequence",
+    "seed, window, from_sequence, use_permutation",
     itertools.product(
         range(20),
         [2, 5, 10, 25],
@@ -32,19 +32,21 @@ def test_minimize(seed, window, from_sequence, use_permutation):
     kmer_alph = align.KmerAlphabet(sequence.alphabet, K)
     kmers = kmer_alph.create_kmers(sequence.code)
 
+    if use_permutation:
+        permutation = align.RandomPermutation(kmer_alph)
+        order = permutation.permute(kmers)
+    else:
+        permutation = None
+        order = kmers
+
     # Use an inefficient but simple algorithm for comparison
     ref_minimizer_pos = np.array([
-        np.argmin(kmers[i : i + window]) + i
-        for i in range(len(kmers) - (window - 1))
+        np.argmin(order[i : i + window]) + i
+        for i in range(len(order) - (window - 1))
     ])
     # Remove duplicates
     ref_minimizer_pos = np.unique(ref_minimizer_pos)
     ref_minimizers = kmers[ref_minimizer_pos]
-
-    if use_permutation:
-        permutation = align.RandomPermutation(kmer_alph)
-    else:
-        permutation = None
     
     minimizer_rule = align.MinimizerRule(kmer_alph, window, permutation)
     if from_sequence:

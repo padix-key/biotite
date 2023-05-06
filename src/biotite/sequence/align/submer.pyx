@@ -240,8 +240,8 @@ def _minimize(int64[:] kmers, int64[:] ordering, uint32 window):
     for seq_i in range(n_windows):
         forward_argcummin = forward_argcummins[seq_i + window - 1]
         reverse_argcummin = reverse_argcummins[seq_i]
-        forward_cummin = kmers[forward_argcummin]
-        reverse_cummin = kmers[reverse_argcummin]
+        forward_cummin = ordering[forward_argcummin]
+        reverse_cummin = ordering[reverse_argcummin]
         
         # At ties the leftmost position is taken,
         # which stems from the reverse pass

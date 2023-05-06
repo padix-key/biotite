@@ -68,7 +68,7 @@ class RandomPermutation(Permutation):
     """
 
     def __init__(self, kmer_alphabet, seed=None):
-        super().__init__(kmer_alphabet)
+        super().__init__()
         rng = np.random.default_rng(seed)
         self._permutation_table = rng.permutation(len(kmer_alphabet))
     
