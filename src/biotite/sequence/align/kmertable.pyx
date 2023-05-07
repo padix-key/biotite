@@ -530,7 +530,7 @@ cdef class KmerTable:
             the filtered subset of *k-mers* given in `kmers`.
             The list may contain multiple elements for multiple
             sequences.
-        kmers : sized iterable object of (ndarray, dtype=np.int64), length=m
+        kmers : sized iterable object of (ndarray, shape=(n,), dtype=np.int64), length=m
             List where each array contains the filtered subset of
             *k-mer* codes from a sequence.
             For each array the index of the *k-mer* code in the array,
@@ -1053,12 +1053,107 @@ cdef class KmerTable:
 
         # Trim to correct size and return
         return np.asarray(matches[:match_i])
+    
+
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    def match_kmer_subset(self, positions, kmers):
+        """
+        match_kmer_subset(positions, kmers)
+
+        Find matches between the *k-mers* in this table with the given
+        input *k-mers*.
+
+        It is intended to use this method to find matches in a table
+        that was created using :meth:`from_kmer_subset()`.
+
+        Parameters
+        ----------
+        positions : ndarray, shape=(n,), dtype=uint32
+            Sequence positions of the filtered subset of *k-mers* given
+            in `kmers`.
+        kmers : ndarray, shape=(n,), dtype=np.int64
+            Filtered subset of *k-mer* codes to match against.
+        
+        Returns
+        -------
+        matches : ndarray, shape=(n,3), dtype=np.uint32
+            The *k-mer* matches.
+            Each row contains one *k-mer* match.
+            Each match has the following columns:
+
+                0. The sequence position in the input *k-mer*, taken
+                   from `positions`
+                1. The reference ID of the matched sequence in the table
+                2. The sequence position of the matched *k-mer* in the
+                   table
+
+        Examples
+        --------
+
+        >>> TODO
+        """
+        cdef int INIT_SIZE = 1
+        
+        cdef int64 i, j
+
+        cdef int64 kmer
+        cdef int64 match_i
+        cdef int64 seq_pos
+        cdef int64 length
+        cdef uint32* kmer_ptr
+
+        # Store in new variable
+        # to disable repetitive initialization checks
+        cdef ptr[:] ptr_array = self._ptr_array
+
+
+        if positions.shape[0] != kmers.shape[0]:
+            raise IndexError(
+                f"{positions.shape[0]} positions were given "
+                f"for {kmers.shape[0]} k-mers"
+            )
+        if np.any(kmers < 0) or np.any(kmers >= len(self._kmer_alph)):
+            raise AlphabetError(
+                "Given k-mer codes do not represent valid k-mers"
+            )
+        cdef int64[:] pos_array = kmers.astype(np.uint32, copy=False)
+        cdef int64[:] kmer_array = kmers.astype(np.int64, copy=False)
+
+        # This array will store the match positions
+        # As the final number of matches is unknown, a list-like
+        # approach is used:
+        # The array is initialized with a relatively small inital size
+        # and every time the limit would be exceeded its size is doubled
+        cdef int64[:,:] matches = np.empty((INIT_SIZE, 3), dtype=np.int64)
+        match_i = 0
+        for i in range(kmers.shape[0]):
+            kmer = kmers[i]
+            seq_pos = positions[i]
+            kmer_ptr = <uint32*>ptr_array[kmer]
+            if kmer_ptr != NULL:
+                # There is at least one entry for the k-mer
+                length = (<int64*>kmer_ptr)[0]
+                for j in range(2, length, 2):
+                        if match_i >= matches.shape[0]:
+                            # The 'matches' array is full
+                            # -> double its size
+                            matches = expand(np.asarray(matches))
+                        matches[match_i, 0] = seq_pos
+                        matches[match_i, 1] = kmer_ptr[j]
+                        matches[match_i, 2] = kmer_ptr[j+1]
+                        match_i += 1
+
+        # Trim to correct size and return
+        return np.asarray(matches[:match_i])
 
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
     def count(self, kmers=None):
         """
+        count(kmers=None)
+
         Count the number of occurences for each *k-mer* in the table.
 
         Parameters
