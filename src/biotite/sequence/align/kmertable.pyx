@@ -1117,7 +1117,7 @@ cdef class KmerTable:
             raise AlphabetError(
                 "Given k-mer codes do not represent valid k-mers"
             )
-        cdef int64[:] pos_array = kmers.astype(np.uint32, copy=False)
+        cdef uint32[:] pos_array = positions.astype(np.uint32, copy=False)
         cdef int64[:] kmer_array = kmers.astype(np.int64, copy=False)
 
         # This array will store the match positions
@@ -1127,9 +1127,9 @@ cdef class KmerTable:
         # and every time the limit would be exceeded its size is doubled
         cdef int64[:,:] matches = np.empty((INIT_SIZE, 3), dtype=np.int64)
         match_i = 0
-        for i in range(kmers.shape[0]):
-            kmer = kmers[i]
-            seq_pos = positions[i]
+        for i in range(kmer_array.shape[0]):
+            kmer = kmer_array[i]
+            seq_pos = pos_array[i]
             kmer_ptr = <uint32*>ptr_array[kmer]
             if kmer_ptr != NULL:
                 # There is at least one entry for the k-mer
@@ -1223,7 +1223,7 @@ cdef class KmerTable:
             kmer_array = kmers.astype(np.int64, copy=False)
             counts = np.zeros(kmer_array.shape[0], dtype=np.int64)
             for i in range(kmer_array.shape[0]):
-                kmer = kmers[i]
+                kmer = kmer_array[i]
                 kmer_ptr = <int64*> ptr_array[kmer]
                 if kmer_ptr != NULL:
                     length = kmer_ptr[0]
