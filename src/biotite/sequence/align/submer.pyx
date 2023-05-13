@@ -76,20 +76,41 @@ class MinimizerRule:
     Examples
     --------
 
-    >>>
+    The *k-mer* decomposition of a sequence can yield a high number of
+    *k-mers*:
 
-    Minimizers are commonly used to reduce the size of sequence data
-    drastically, while retaining important information to a certain
-    degree.
-    For example, only the minimizers can be stored in a
-    :class:`KmerTable` instead of all *k-mers*:
+    >>> sequence1 = ProteinSequence("THIS*IS*A*SEQVENCE")
+    >>> kmer_alph = KmerAlphabet(sequence1.alphabet, k=3)
+    >>> all_kmers = kmer_alph.create_kmers(sequence1.code)
+    >>> print(all_kmers)
+    [ 9367  3639  4415  9199 13431  4415  9192 13271   567 13611  8725  2057
+      7899  9875  1993  6363]
+    >>> print(["".join(kmer_alph.decode(kmer)) for kmer in all_kmers])
+    ['THI', 'HIS', 'IS*', 'S*I', '*IS', 'IS*', 'S*A', '*A*', 'A*S', '*SE', 'SEQ', 'EQV', 'QVE', 'VEN', 'ENC', 'NCE']
 
-    >>>
+    Minimizers can be used to reduce the number of *k-mers* by selecting
+    only the minimum *k-mer* in each window *w*:
 
-    Although the data is reduced, matching is still guanrateed to work,
-    if the two sequences share identity in the given window:
+    >>> minimizer = MinimizerRule(kmer_alph, window=4)
+    >>> minimizer_pos, minimizers = minimizer.select(sequence1)
+    >>> print(minimizer_pos)
+    [ 1  2  5  8 11 14]
+    >>> print(minimizers)
+    [3639 4415 4415  567 2057 1993]
+    >>> print(["".join(kmer_alph.decode(kmer)) for kmer in minimizers])
+    ['HIS', 'IS*', 'IS*', 'A*S', 'EQV', 'ENC']
 
-    >>>
+    Although this approach reduces the number of *k-mers*, minimizers
+    are still guaranteed to match minimizers in another sequence, if
+    they share an equal subsequence of at least length *w + k - 1*:
+
+    >>> sequence2 = ProteinSequence("ANQTHER*SEQVENCE")
+    >>> other_minimizer_pos, other_minimizers = minimizer.select(sequence2)
+    >>> print(["".join(kmer_alph.decode(kmer)) for kmer in other_minimizers])
+    ['ANQ', 'HER', 'ER*', 'EQV', 'ENC']
+    >>> common_minimizers = set.intersection(set(minimizers), set(other_minimizers))
+    >>> print(["".join(kmer_alph.decode(kmer)) for kmer in common_minimizers])
+    ['EQV', 'ENC']
     """
 
 
