@@ -14,7 +14,7 @@ class Permutation(metaclass=abc.ABCMeta):
     """
     Provides an order for *k-mers*, usually used by *submer* rules
     such as :class:`MinimizerRule`.
-    The rule how such order is computed depends on the concrete
+    The method how such order is computed depends on the concrete
     subclass of this abstract base class.
 
     Without a :class:`Permutation` *submer* rules usually resort to
@@ -65,6 +65,20 @@ class RandomPermutation(Permutation):
     Hence, the memory consumption is :math:`8 n^k` bytes,
     where :math:`n` is the size of the base alphabet and :math:`k` is
     the *k-mer* size.
+
+    Examples
+    --------
+
+    >>> kmer_alph = KmerAlphabet(NucleotideSequence.alphabet_unamb, k=2)
+    >>> permutation = RandomPermutation(kmer_alph, seed=0)
+    >>> # k-mer codes representing the k-mers from 'AA' to 'TT'
+    >>> # in lexicographic order
+    >>> kmer_codes = np.arange(len(kmer_alph))
+    >>> print(kmer_codes)
+    [ 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15]
+    >>> # Shuffle order of these k-mer codes using the permutation
+    >>> print(permutation.permute(kmer_codes))
+    [ 2 11  3 10  0  4  7  5 14 12  6  9 13  8  1 15]
     """
 
     def __init__(self, kmer_alphabet, seed=None):
@@ -74,3 +88,5 @@ class RandomPermutation(Permutation):
     
     def permute(self, kmers):
         return self._permutation_table[kmers]
+
+
