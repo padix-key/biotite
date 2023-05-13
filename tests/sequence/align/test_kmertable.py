@@ -225,6 +225,39 @@ def test_match(k, random_sequences, use_similarity_rule):
     assert np.array_equal(test_matches.tolist(), ref_matches.tolist())
 
 
+def test_match_kmer_subset(k, random_sequences):
+    """
+    Same as :func:`test_match()` but with a subset of positions.
+    """
+    N_POS = 100
+
+    query_sequence = random_sequences[0]
+    table_sequences = random_sequences[1:]   
+    table = align.KmerTable.from_sequences(k, table_sequences)
+    
+    kmers = table.kmer_alphabet.create_kmers(query_sequence.code)
+    np.random.seed(0)
+    positions = np.random.randint(len(kmers), size=N_POS)
+    ref_matches = []
+    for pos in positions:
+        kmer = kmers[pos]
+        matches = table[kmer]
+        matches = np.stack(
+            [
+                np.full(len(matches), pos, dtype=np.uint32), 
+                matches[:,0],
+                matches[:,1]
+            ],
+            axis=1
+        )
+        ref_matches.append(matches)
+    ref_matches = np.concatenate(ref_matches)
+
+    test_matches = table.match_kmer_subset(positions, kmers[positions])
+
+    assert np.array_equal(test_matches.tolist(), ref_matches.tolist())
+
+
 @pytest.mark.parametrize("use_mask", [False, True])
 def test_match_equivalence(k, random_sequences, use_mask):
     """
