@@ -551,7 +551,44 @@ cdef class KmerTable:
         Examples
         --------
 
-        >>> TODO
+        Reduce the size of sequence data in the table using minimizers:
+
+        >>> sequence1 = ProteinSequence("THIS*IS*A*SEQVENCE")
+        >>> kmer_alph = KmerAlphabet(sequence1.alphabet, k=3)
+        >>> minimizer = MinimizerRule(kmer_alph, window=4)
+        >>> minimizer_pos, minimizers = minimizer.select(sequence1)
+        >>> kmer_table = KmerTable.from_kmer_subset(
+        ...     kmer_alph, [minimizer_pos], [minimizers]
+        ... )
+
+        Use the same :class:`MinimizerRule` to select the minimizers
+        from the query sequence and match them against the table.
+        Although the amount of *k-mers* is reduced, matching is still
+        guanrateed to work, if the two sequences share identity in the
+        given window:
+
+        >>> sequence2 = ProteinSequence("ANQTHER*SEQVENCE")
+        >>> minimizer_pos, minimizers = minimizer.select(sequence2)
+        >>> matches = kmer_table.match_kmer_subset(minimizer_pos, minimizers)
+        >>> print(matches)
+        [[ 9  0 11]
+         [12  0 14]]
+        >>> for query_pos, _, db_pos in matches:
+        ...     print(sequence1)
+        ...     print(" " * (db_pos-1) + "^" * kmer_table.k)
+        ...     print(sequence2)
+        ...     print(" " * (query_pos-1) + "^" * kmer_table.k)
+        ...     print()
+        THIS*IS*A*SEQVENCE
+          ^^^
+        ANQTHER*SEQVENCE
+                ^^^
+        <BLANKLINE>
+        THIS*IS*A*SEQVENCE
+                    ^^^
+        ANQTHER*SEQVENCE
+                ^^^
+        <BLANKLINE>
         """
         if not isinstance(kmer_alphabet, KmerAlphabet):
             raise TypeError(
@@ -1091,7 +1128,44 @@ cdef class KmerTable:
         Examples
         --------
 
-        >>> TODO
+        Reduce the size of sequence data in the table using minimizers:
+
+        >>> sequence1 = ProteinSequence("THIS*IS*A*SEQVENCE")
+        >>> kmer_alph = KmerAlphabet(sequence1.alphabet, k=3)
+        >>> minimizer = MinimizerRule(kmer_alph, window=4)
+        >>> minimizer_pos, minimizers = minimizer.select(sequence1)
+        >>> kmer_table = KmerTable.from_kmer_subset(
+        ...     kmer_alph, [minimizer_pos], [minimizers]
+        ... )
+
+        Use the same :class:`MinimizerRule` to select the minimizers
+        from the query sequence and match them against the table.
+        Although the amount of *k-mers* is reduced, matching is still
+        guanrateed to work, if the two sequences share identity in the
+        given window:
+
+        >>> sequence2 = ProteinSequence("ANQTHER*SEQVENCE")
+        >>> minimizer_pos, minimizers = minimizer.select(sequence2)
+        >>> matches = kmer_table.match_kmer_subset(minimizer_pos, minimizers)
+        >>> print(matches)
+        [[ 9  0 11]
+         [12  0 14]]
+        >>> for query_pos, _, db_pos in matches:
+        ...     print(sequence1)
+        ...     print(" " * (db_pos-1) + "^" * kmer_table.k)
+        ...     print(sequence2)
+        ...     print(" " * (query_pos-1) + "^" * kmer_table.k)
+        ...     print()
+        THIS*IS*A*SEQVENCE
+          ^^^
+        ANQTHER*SEQVENCE
+                ^^^
+        <BLANKLINE>
+        THIS*IS*A*SEQVENCE
+                    ^^^
+        ANQTHER*SEQVENCE
+                ^^^
+        <BLANKLINE>
         """
         cdef int INIT_SIZE = 1
         
@@ -1185,14 +1259,31 @@ cdef class KmerTable:
         Count two selected *k-mers*:
 
         >>> print(table.count(table.kmer_alphabet.encode_multiple(["TA", "AG"])))
-        [3, 1]
+        [3 1]
 
         Count all *k-mers*:
 
         >>> counts = table.count()
         >>> print(counts)
+        [0 0 1 1 0 0 0 1 0 0 0 0 3 0 0 1]
         >>> for kmer, count in zip(table.kmer_alphabet.get_symbols(), counts):
         ...     print(kmer, count)
+        AA 0
+        AC 0
+        AG 1
+        AT 1
+        CA 0
+        CC 0
+        CG 0
+        CT 1
+        GA 0
+        GC 0
+        GG 0
+        GT 0
+        TA 3
+        TC 0
+        TG 0
+        TT 1
         """
         cdef int64 i
 
