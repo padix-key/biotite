@@ -1780,10 +1780,10 @@ cdef class KmerTable:
 
     cdef inline bint _is_initialized(self):
         # Memoryviews are not initialized on class creation
-        # This method checks if the _kmer_len memoryview was initialized
-        # and is not None
+        # This method checks, if the _ptr_array memoryview was
+        # initialized and is not None
         try:
-            if self._kmer_len is not None:
+            if self._ptr_array is not None:
                 return True
             else:
                 return False
@@ -1792,7 +1792,7 @@ cdef class KmerTable:
 
     
 cdef inline void _deallocate_ptrs(ptr[:] ptrs):
-    cdef int kmer
+    cdef int64 kmer
     for kmer in range(ptrs.shape[0]):
         free(<uint32*>ptrs[kmer])
 
