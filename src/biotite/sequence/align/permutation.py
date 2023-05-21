@@ -45,6 +45,8 @@ class Permutation(metaclass=abc.ABCMeta):
 
 class RandomPermutation(Permutation):
     """
+    __init__(kmer_alphabet, seed=None)
+
     Provide a randomized order for *k-mers* from a given
     :class:`KmerAlphabet`.
 
@@ -82,7 +84,6 @@ class RandomPermutation(Permutation):
     """
 
     def __init__(self, kmer_alphabet, seed=None):
-        super().__init__()
         rng = np.random.default_rng(seed)
         self._permutation_table = rng.permutation(len(kmer_alphabet))
     
@@ -90,3 +91,58 @@ class RandomPermutation(Permutation):
         return self._permutation_table[kmers]
 
 
+class FrequencyPermutation(Permutation):
+    """
+    __init__(kmer_alphabet, counts)
+
+    Provide an order for *k-mers* from a given
+    :class:`KmerAlphabet`, such that less frequent *k-mers* are smaller
+    that more frequent *k-mers*.
+    The frequency of each *k-mer* can either be given directly via the
+    constructor or can be computed from a :class:`KmerTable` via
+    :meth:`from_table()`.
+
+    Parameters
+    ----------
+    kmer_alphabet : KmerAlphabet, length=n
+        The *k-mer* alphabet that defines the range of possible *k-mers*
+        that should be permuted.
+    counts : ndarray, shape=(n,), dtype=np.int64
+        The absolute frequency, i.e. the number of occurrences, of each
+        *k-mer* in `kmer_alphabet` in the sequence database of interest.
+        ``counts[c] = f``, where ``c`` is the *k-mer* code and ``f`` is
+        the corresponding frequency.
+    
+    Notes
+    -----
+
+    In actual sequences some sequence patterns appear in high quantity.
+    When selecting a subset of *k-mers*, e.g. via
+    :class:`MinimizerRule`, it is desireable to select the low-frequency
+    *informative* *k-mers* to avoid spurious matches.
+    To achieve such selection this class can be used.
+
+    This class uses a lookup table to achieve permutation.
+    Hence, the memory consumption is :math:`8 n^k` bytes,
+    where :math:`n` is the size of the base alphabet and :math:`k` is
+    the *k-mer* size.
+
+    Examples
+    --------
+
+    >>> TODO
+    """
+    def __init__(self, kmer_alphabet, counts):
+        if len(kmer_alphabet) != len(counts):
+            raise IndexError(
+                f"The k-mer alphabet has {len(kmer_alphabet)} k-mers, "
+                f"but {len(counts)} counts were given"
+            )
+        order = np.argsort(counts)
+        # 'order' maps a permutation a k-mer
+        # Via fancy indexing with itself, the result maps a k-mer
+        # to its permutation
+        self._permutation_table = order[order]
+    
+    def permute(self, kmers):
+        return self._permutation_table[kmers]
