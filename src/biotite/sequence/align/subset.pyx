@@ -44,8 +44,8 @@ class MinimizerRule:
         The window size must be at least 2.
     permutation : Permutation
         If set, the *k-mer* order is permuted, i.e.
-        the minimizer is chosen based on the ordering of the values from
-        :class:`Permutation.permute()`.
+        the minimizer is chosen based on the ordering of the sort keys
+        from :class:`Permutation.permute()`.
         By default, the standard order of the :class:`KmerAlphabet` is
         used.
         This standard order is often the lexicographical order, which is
@@ -209,6 +209,11 @@ class MinimizerRule:
             ordering = kmers
         else:
             ordering = self._permutation.permute(kmers)
+            if len(ordering) != len(kmers):
+                raise IndexError(
+                    f"The Permutation is defective, it gave {len(ordering)} "
+                    f"sort keys for {len(kmers)} k-mers"
+                )
 
         if len(kmers) < self._window:
             raise ValueError(
