@@ -4,10 +4,11 @@
 
 __name__ = "biotite.sequence.align"
 __author__ = "Patrick Kunzmann"
-__all__ = ["Permutation", "RandomPermutation"]
+__all__ = ["Permutation", "RandomPermutation", "FrequencyPermutation"]
 
 import abc
 import numpy as np
+from ..alphabet import AlphabetError
 
 
 class Permutation(metaclass=abc.ABCMeta):
@@ -27,6 +28,8 @@ class Permutation(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def permute(self, kmers):
         """
+        permute(kmers)
+
         Give the given *k-mers* a new order.
 
         Parameters
@@ -37,8 +40,10 @@ class Permutation(metaclass=abc.ABCMeta):
         Returns
         -------
         order : ndarray, dtype=np.int64
-            The new order, i.e. a *k-mer* A is smaller than *k-mer* B,
-            if ``order[A] < order[B]``
+            The sort key for the new order, i.e. a *k-mer* ``A`` is
+            smaller than *k-mer* ``B``, if ``order[A] < order[B]``
+            The order value may not only contain positive but also
+            negative integers.
         """
         pass
 
@@ -83,12 +88,20 @@ class RandomPermutation(Permutation):
     [ 2 11  3 10  0  4  7  5 14 12  6  9 13  8  1 15]
     """
 
-    def __init__(self, kmer_alphabet, seed=None):
-        rng = np.random.default_rng(seed)
-        self._permutation_table = rng.permutation(len(kmer_alphabet))
+    LCG_A = 0xd1342543de82ef95
+    LCG_C = 1
     
     def permute(self, kmers):
-        return self._permutation_table[kmers]
+        # Cast to unsigned int to harness the m=2^64 LCG
+        kmers = kmers.view(np.uint64)
+        # Apply LCG
+        # Applying the modulo operator is not necessary
+        # is the corresponding bits are truncated automatically
+        permutation = RandomPermutation.LCG_A * kmers + RandomPermutation.LCG_C
+        # Convert back to required signed int64
+        # The resulting integer overflow changes the order, but this is
+        # no problem since the order is pseudo-random anyway
+        return permutation.view(np.int64)
 
 
 class FrequencyPermutation(Permutation):
@@ -132,17 +145,16 @@ class FrequencyPermutation(Permutation):
 
     >>> TODO
     """
+    
     def __init__(self, kmer_alphabet, counts):
         if len(kmer_alphabet) != len(counts):
             raise IndexError(
                 f"The k-mer alphabet has {len(kmer_alphabet)} k-mers, "
                 f"but {len(counts)} counts were given"
             )
-        order = np.argsort(counts)
-        # 'order' maps a permutation a k-mer
-        # Via fancy indexing with itself, the result maps a k-mer
-        # to its permutation
-        self._permutation_table = order[order]
+        # The higher the count value, the lower the value in the
+        # permutation table
+        self._permutation_table = -counts
     
     def permute(self, kmers):
         return self._permutation_table[kmers]
