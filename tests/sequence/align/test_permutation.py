@@ -38,23 +38,24 @@ def test_random_permutation_modulo():
 def test_random_permutation_randomness():
     """
     A simple test of randomness from :class:`RandomPermutation`:
-    At each point in the permuted sequence , there should be an almost
-    equal number of positive and negative integers
+    The permutation of an arbitrary range of positive values should
+    have an almost equal number of positive and negative integers.
     """
-    SEQ_LENGTH = 1_000_000
+    SEQ_LENGTH = 10_000_000
+    FRAME_SIZE = 20
 
-    np.random.seed(0)
-    ref_kmers = np.random.randint(np.iinfo(np.int64).max + 1, size=SEQ_LENGTH)
-    ref_distribution = _create_distribution(ref_kmers)
-
-    test_kmers = np.arange(int(2**62), int(2**62)+SEQ_LENGTH)
-    test_distribution = _create_distribution(test_kmers)
-
-def _create_distribution(kmers):
-    BINS = np.arange(-30, 30)
-
+    kmers = np.arange(0, SEQ_LENGTH)
     permutation = align.RandomPermutation()
     order = permutation.permute(kmers)
-    cum_sign = np.cumsum(np.sign(order))
-    distribution, _ = np.histogram(cum_sign, bins=BINS)
-    return distribution / len(kmers)
+    positive = (np.sign(order) == 1)
+    n_positive = np.convolve(positive, np.ones(FRAME_SIZE), mode='valid')
+    distribution, _ = np.histogram(
+        n_positive, bins=np.arange(0, 10 * FRAME_SIZE)
+    )
+
+    # Since each value in the k-mer array is unique,
+    # all mapped values should be unique as well
+    assert len(np.unique(order)) == SEQ_LENGTH
+    # Peak of distribution should be at FRAME_SIZE / 2 since an equal
+    # number of positive and negative integers are expected
+    assert np.argmax(distribution) == FRAME_SIZE // 2
