@@ -121,7 +121,7 @@ class FrequencyPermutation(Permutation):
 
     Provide an order for *k-mers* from a given
     :class:`KmerAlphabet`, such that less frequent *k-mers* are smaller
-    that more frequent *k-mers*.
+    than more frequent *k-mers*.
     The frequency of each *k-mer* can either be given directly via the
     constructor or can be computed from a :class:`KmerTable` via
     :meth:`from_table()`.
@@ -154,7 +154,33 @@ class FrequencyPermutation(Permutation):
     Examples
     --------
 
-    >>> TODO
+    >>> alphabet = LetterAlphabet("abcdr")
+    >>> sequence = GeneralSequence(alphabet, "abracadabra")
+    >>> kmer_table = KmerTable.from_sequences(k=2, sequences=[sequence])
+    >>> print(kmer_table)
+    ab: (0, 0), (0, 7)
+    ac: (0, 3)
+    ad: (0, 5)
+    br: (0, 1), (0, 8)
+    ca: (0, 4)
+    da: (0, 6)
+    ra: (0, 2), (0, 9)
+    >>> # Create all k-mers in lexicographic order
+    >>> kmer_alph = kmer_table.kmer_alphabet
+    >>> kmer_codes = np.arange(0, len(kmer_alph))
+    >>> print(["..."] + ["".join(kmer_alph.decode(c)) for c in kmer_codes[-10:]])
+    ['...', 'da', 'db', 'dc', 'dd', 'dr', 'ra', 'rb', 'rc', 'rd', 'rr']
+    >>> # After applying the permutation the k-mers are ordered
+    >>> # by their frequency in the table
+    >>> # -> the most frequent k-mers have low rank
+    >>> permutation = FrequencyPermutation.from_table(kmer_table)
+    >>> order = permutation.permute(kmer_codes)
+    >>> print(order)
+    [ 0 24 20 19 16 15 14 13 12 22 21 10 11  8  7 18  6  5  4  3 23  2  1  9
+     17]
+    >>> kmer_codes = kmer_codes[np.argsort(order)]
+    >>> print(["..."] + ["".join(kmer_alph.decode(c)) for c in kmer_codes[-10:]])
+    ['...', 'ba', 'ar', 'rr', 'da', 'ad', 'ac', 'ca', 'br', 'ra', 'ab']
     """
     
     def __init__(self, kmer_alphabet, counts):
@@ -163,9 +189,11 @@ class FrequencyPermutation(Permutation):
                 f"The k-mer alphabet has {len(kmer_alphabet)} k-mers, "
                 f"but {len(counts)} counts were given"
             )
-        # The higher the count value, the lower the value in the
-        # permutation table
-        self._permutation_table = -counts
+        # 'order' maps a permutation to a k-mer
+        order = np.argsort(counts)
+        # '_permutation_table' should perform the reverse mapping
+        self._permutation_table = np.empty(len(kmer_alphabet), dtype=np.int64)
+        self._permutation_table[order] = np.arange(len(kmer_alphabet))
     
 
     def from_table(kmer_table):
