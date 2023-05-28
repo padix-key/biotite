@@ -44,48 +44,59 @@ class Permutation(metaclass=abc.ABCMeta):
             smaller than *k-mer* ``B``, if ``order[A] < order[B]``
             The order value may not only contain positive but also
             negative integers.
+            The order is unambiguous:
+            If ``A != B``, then ``order[A] != order[B]``.
         """
         pass
 
 
 class RandomPermutation(Permutation):
-    """
-    __init__(kmer_alphabet, seed=None)
-
-    Provide a randomized order for *k-mers* from a given
-    :class:`KmerAlphabet`.
-
-    Parameters
-    ----------
-    kmer_alphabet : KmerAlphabet
-        The *k-mer* alphabet that defines the range of possible *k-mers*
-        that should be permuted.
-    seed : int, optional
-        The seed for the random number generator that creates the
-        new order.
-        By default, the seed is randomly chosen.
+    r"""
+    Provide a pseudo-randomized order for *k-mers*.
     
     Notes
     -----
 
-    This class uses a lookup table to achieve permutation.
-    Hence, the memory consumption is :math:`8 n^k` bytes,
-    where :math:`n` is the size of the base alphabet and :math:`k` is
-    the *k-mer* size.
+    This class uses a simple full-period *linear congruential generator*
+    (LCG) to provide pseudo-randomized values:
+    
+    .. math:: \text{order} = (a c_\text{k-mer} + 1) \mod 2^64.
+
+    The factor :math:`a` is taken from :footcite:`Steele2021` to ensure
+    full periodicity and good random behavior.
+    However, note that LCGs in general do not provide perfect random
+    behavior, but only *good-enough* values for this purpose.
+
+    References
+    ----------
+
+    .. footbibliography::
 
     Examples
     --------
 
     >>> kmer_alph = KmerAlphabet(NucleotideSequence.alphabet_unamb, k=2)
-    >>> permutation = RandomPermutation(kmer_alph, seed=0)
+    >>> permutation = RandomPermutation()
     >>> # k-mer codes representing the k-mers from 'AA' to 'TT'
     >>> # in lexicographic order
     >>> kmer_codes = np.arange(len(kmer_alph))
     >>> print(kmer_codes)
     [ 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15]
+    >>> print(["".join(kmer_alph.decode(c)) for c in kmer_codes])
+    ['AA', 'AC', 'AG', 'AT', 'CA', 'CC', 'CG', 'CT', 'GA', 'GC', 'GG', 'GT', 'TA', 'TC', 'TG', 'TT']
     >>> # Shuffle order of these k-mer codes using the permutation
-    >>> print(permutation.permute(kmer_codes))
-    [ 2 11  3 10  0  4  7  5 14 12  6  9 13  8  1 15]
+    >>> order = permutation.permute(kmer_codes)
+    >>> print(order)
+    [                   1 -3372029247567499370 -6744058495134998741
+      8330656331007053504  4958627083439554133  1586597835872054762
+     -1785431411695444609 -5157460659262943980 -8529489906830443351
+      6545224919311608894  3173195671744109523  -198833575823389848
+     -3570862823390889219 -6942892070958388590  8131822755183663655
+      4759793507616164284]
+    >>> # The order is not lexicographic anymore
+    >>> kmer_codes = kmer_codes[np.argsort(order)]
+    >>> print(["".join(kmer_alph.decode(c)) for c in kmer_codes])
+    ['GA', 'TC', 'AG', 'CT', 'TA', 'AC', 'CG', 'GT', 'AA', 'CC', 'GG', 'TT', 'CA', 'GC', 'TG', 'AT']
     """
 
     LCG_A = 0xd1342543de82ef95
@@ -106,7 +117,7 @@ class RandomPermutation(Permutation):
 
 class FrequencyPermutation(Permutation):
     """
-    __init__(kmer_alphabet, counts)
+    __init__(counts)
 
     Provide an order for *k-mers* from a given
     :class:`KmerAlphabet`, such that less frequent *k-mers* are smaller
@@ -155,6 +166,27 @@ class FrequencyPermutation(Permutation):
         # The higher the count value, the lower the value in the
         # permutation table
         self._permutation_table = -counts
+    
+
+    def from_table(kmer_table):
+        """
+        Create a :class:`FrequencyPermutation` from the *k-mer* counts
+        of a :class:`KmerTable`.
+
+        Parameters
+        ----------
+        kmer_table : KmerTable
+            The *k-mer* counts are taken from this table.
+        
+        Returns
+        -------
+        permutation : FrequencyPermutation
+            The permutation is based on the counts.
+        """
+        return FrequencyPermutation(
+            kmer_table.kmer_alphabet, kmer_table.count()
+        )
+
     
     def permute(self, kmers):
         return self._permutation_table[kmers]
