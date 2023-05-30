@@ -6,9 +6,15 @@ __name__ = "biotite.sequence.align"
 __author__ = "Patrick Kunzmann"
 __all__ = ["Permutation", "RandomPermutation", "FrequencyPermutation"]
 
+cimport cython
+cimport numpy as np
+
 import abc
 import numpy as np
 from ..alphabet import AlphabetError
+
+
+ctypedef np.int64_t int64
 
 
 class Permutation(metaclass=abc.ABCMeta):
@@ -117,7 +123,7 @@ class RandomPermutation(Permutation):
 
 class FrequencyPermutation(Permutation):
     """
-    __init__(counts)
+    __init__(kmer_alphabet, counts)
 
     Provide an order for *k-mers* from a given
     :class:`KmerAlphabet`, such that less frequent *k-mers* are smaller
@@ -146,7 +152,7 @@ class FrequencyPermutation(Permutation):
     *informative* *k-mers* to avoid spurious matches.
     To achieve such selection this class can be used.
 
-    This class uses a lookup table to achieve permutation.
+    This class uses a table to look up the order.
     Hence, the memory consumption is :math:`8 n^k` bytes,
     where :math:`n` is the size of the base alphabet and :math:`k` is
     the *k-mer* size.
@@ -192,8 +198,7 @@ class FrequencyPermutation(Permutation):
         # 'order' maps a permutation to a k-mer
         order = np.argsort(counts)
         # '_permutation_table' should perform the reverse mapping
-        self._permutation_table = np.empty(len(kmer_alphabet), dtype=np.int64)
-        self._permutation_table[order] = np.arange(len(kmer_alphabet))
+        self._permutation_table = _invert_mapping(order)
     
 
     def from_table(kmer_table):
@@ -218,3 +223,25 @@ class FrequencyPermutation(Permutation):
     
     def permute(self, kmers):
         return self._permutation_table[kmers]
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def _invert_mapping(int64[:] mapping):
+    """
+    If `mapping` maps an unqiue integer ``A`` to an unique integer
+    ``B``, i.e. ``B = mapping[A]``, this function inverts the mapping
+    so that ``A = inverted[B]``.
+    
+    Note that it is necessary that the mapping must be bijective and in
+    the range ``0..n``.
+    """
+    cdef int64 i
+    cdef int64 value
+
+    cdef int64[:] inverted = np.empty(mapping.shape[0], dtype=np.int64)
+    for i in range(mapping.shape[0]):
+        value = mapping[i]
+        inverted[value] = i
+    
+    return np.asarray(inverted)
