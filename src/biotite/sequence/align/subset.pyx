@@ -113,15 +113,14 @@ class MinimizerRule:
     ['EQV', 'ENC']
     """
 
-
     def __init__(self, kmer_alphabet, window, permutation=None):
         if window < 2:
-                raise ValueError("Window size must be at least 2")
+            raise ValueError("Window size must be at least 2")
         self._window = window
         self._kmer_alph = kmer_alphabet
         self._permutation = permutation
     
-    
+
     @property
     def kmer_alphabet(self):
         return self._kmer_alph
@@ -224,6 +223,121 @@ class MinimizerRule:
             ordering.astype(np.int64, copy=False),
             self._window
         )
+
+
+class SyncmerRule:
+
+    def __init__(self, alphabet, k, s, permutation=None):
+        if not s < k:
+            raise ValueError("s must be smaller than k")
+        self._window = k - s + 1
+        self._alphabet = alphabet
+        self._kmer_alph = KmerAlphabet(alphabet, k)
+        self._smer_alph = KmerAlphabet(alphabet, s)
+        self._permutation = permutation
+    
+
+    @property
+    def alphabet(self):
+        return self._alph
+
+    @property
+    def kmer_alphabet(self):
+        return self._kmer_alph
+    
+    @property
+    def smer_alphabet(self):
+        return self._smer_alph
+
+    @property
+    def permutation(self):
+        return self._permutation
+    
+
+    def select(self, sequence, bint alphabet_check=True):
+        if alphabet_check:
+            if not self._alphabet.extends(sequence.alphabet):
+                raise ValueError(
+                    "The sequence's alphabet does not fit the rule's alphabet"
+                )
+        kmers = self._kmer_alph.create_kmers(sequence.code)
+        smers = self._kmer_alph.create_kmers(sequence.code)
+
+        if self._permutation is None:
+            ordering = smers
+        else:
+            ordering = self._permutation.permute(smers)
+            if len(ordering) != len(smers):
+                raise IndexError(
+                    f"The Permutation is defective, it gave {len(ordering)} "
+                    f"sort keys for {len(smers)} s-mers"
+                )
+
+        # Open syncmers are k-mers, whose minimum s-mer is at the first
+        # position of the k-mer window
+        # Therefore, the minimum s-mer positions in the running k-mer
+        # windows are also automatically the syncmer positions
+        min_pos, _ = _minimize(
+            smers,
+            ordering.astype(np.int64, copy=False),
+            self._window
+        )
+        return min_pos, kmers[min_pos]
+
+
+class MincodeRule:
+
+    def __init__(self, kmer_alphabet, compression, permutation=None):
+        if compression < 1:
+            raise ValueError(
+                "Compression factor must be equal to or larger than 1"
+            )
+        self._compression = compression
+        self._threshold = (permutation.max - permutation-min) / compression
+        self._kmer_alph = kmer_alphabet
+        self._permutation = permutation
+    
+
+    @property
+    def kmer_alphabet(self):
+        return self._kmer_alph
+    
+    @property
+    def compression(self):
+        return self._compression
+
+    @property
+    def threshold(self):
+        return self._threshold
+
+    @property
+    def permutation(self):
+        return self._permutation
+    
+
+    def select(self, sequence, bint alphabet_check=True):
+        if alphabet_check:
+            if not self._kmer_alph.base_alphabet.extends(sequence.alphabet):
+                raise ValueError(
+                    "The sequence's alphabet does not fit the k-mer alphabet"
+                )
+        kmers = self._kmer_alph.create_kmers(sequence.code)
+        return self.select_from_kmers(kmers)
+    
+
+    def select_from_kmers(self, kmers):
+        if self._permutation is None:
+            ordering = kmers
+        else:
+            ordering = self._permutation.permute(kmers)
+            if len(ordering) != len(kmers):
+                raise IndexError(
+                    f"The Permutation is defective, it gave {len(ordering)} "
+                    f"sort keys for {len(kmers)} k-mers"
+                )
+
+        mincode_pos = ordering <= self._threshold
+        return mincode_pos, kmers[mincode_pos]
     
 
 @cython.boundscheck(False)
