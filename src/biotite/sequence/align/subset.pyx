@@ -241,8 +241,6 @@ class SyncmerRule:
         self._permutation = permutation
 
         self._offset = np.asarray(offset, dtype=np.int64)
-        if len(np.unique(self._offset)) != len(self._offset):
-            raise ValueError("Offset must contain unique values")
         # Wrap around negative indices
         self._offset = np.where(
             self._offset < 0,
@@ -253,6 +251,8 @@ class SyncmerRule:
             raise IndexError(
                 f"Offset is out of window range"
             )
+        if len(np.unique(self._offset)) != len(self._offset):
+            raise ValueError("Offset must contain unique values")
     
 
     @property

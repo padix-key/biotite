@@ -115,6 +115,23 @@ def test_syncmer(seed, s, offset, use_permutation):
     assert test_syncmers.tolist() == ref_syncmers.tolist()
 
 
-def test_syncmer_invalid_offsets():
-    # TODO
-    raise
+@pytest.mark.parametrize(
+    "offset, exception_type",
+    [
+        # Duplicate values
+        ((1, 1),    ValueError),
+        ((0, 2, 0), ValueError),
+        ((0, -10),  ValueError),
+        # Offset out of window range
+        ((-11,),    IndexError),
+        ((10,),     IndexError),
+    ]
+)
+def test_syncmer_invalid_offset(offset, exception_type):
+    K = 11
+    S = 2
+    with pytest.raises(exception_type):
+        align.SyncmerRule(
+            # Any alphabet would work here
+            seq.NucleotideSequence.alphabet_unamb, K, S, offset=offset
+        )
