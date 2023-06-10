@@ -18,10 +18,10 @@ import biotite.sequence.align as align
         [False, True]
     )
 )
-def test_minimize(seed, window, from_sequence, use_permutation):
+def test_minimizer(seed, window, from_sequence, use_permutation):
     """
     Compare the fast minimizer identification algorithm against
-    a trivial implementation based on randomized input.
+    a trivial implementation on randomized input.
     """
     K = 10
     LENGTH = 1000
@@ -33,7 +33,7 @@ def test_minimize(seed, window, from_sequence, use_permutation):
     kmers = kmer_alph.create_kmers(sequence.code)
 
     if use_permutation:
-        permutation = align.RandomPermutation(kmer_alph)
+        permutation = align.RandomPermutation()
         order = permutation.permute(kmers)
     else:
         permutation = None
@@ -58,3 +58,59 @@ def test_minimize(seed, window, from_sequence, use_permutation):
     
     assert test_minimizer_pos.tolist() == ref_minimizer_pos.tolist()
     assert test_minimizers.tolist() == ref_minimizers.tolist()
+
+
+@pytest.mark.parametrize(
+    "seed, s, offset, use_permutation",
+    itertools.product(
+        range(20),
+        [2, 3, 5, 7],
+        [(0,), (1, 2, 3), (0, -1), (-5,-1)],
+        [False, True]
+    )
+)
+def test_syncmer(seed, s, offset, use_permutation):
+    """
+    Compare the fast syncmer identification algorithm against
+    a trivial implementation on randomized input.
+    """
+    K = 10
+    LENGTH = 1000
+
+    sequence = seq.NucleotideSequence(ambiguous=False)
+    alphabet = sequence.alphabet
+    np.random.seed(seed)
+    sequence.code = np.random.randint(len(alphabet), size=LENGTH)
+
+    kmers = align.KmerAlphabet(alphabet, K).create_kmers(sequence.code)
+    smers = align.KmerAlphabet(alphabet, s).create_kmers(sequence.code)
+
+    if use_permutation:
+        permutation = align.RandomPermutation()
+        order = permutation.permute(smers)
+    else:
+        permutation = None
+        order = smers
+    
+    # Use an inefficient but simple algorithm for comparison
+    ref_syncmer_pos = []
+    for i in range(len(kmers)):
+        order_in_kmer = order[i : i + K - s + 1]
+        min_smer_pos = np.min(order_in_kmer)
+        if np.isin(min_smer_pos, offset):
+            ref_syncmer_pos.append(i)
+    ref_syncmer_pos = np.array(ref_syncmer_pos)
+    ref_syncmers = kmers[ref_syncmer_pos]
+
+    syncmer_rule = align.SyncmerRule(
+        sequence.alphabet, K, s, permutation, offset
+    )
+    test_syncmer_pos, test_syncmers = syncmer_rule.select(sequence)
+
+    assert test_syncmer_pos.tolist() == ref_syncmer_pos.tolist()
+    assert test_syncmers.tolist() == ref_syncmers.tolist()
+
+
+def test_syncmer_invalid_offsets():
+    # TODO
+    raise

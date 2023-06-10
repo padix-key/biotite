@@ -59,3 +59,8 @@ def test_random_permutation_randomness():
     # Peak of distribution should be at FRAME_SIZE / 2 since an equal
     # number of positive and negative integers are expected
     assert np.argmax(distribution) == FRAME_SIZE // 2
+
+
+def test_frequency_permutation():
+    # TODO
+    raise

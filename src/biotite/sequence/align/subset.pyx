@@ -4,11 +4,12 @@
 
 __name__ = "biotite.sequence.align"
 __author__ = "Patrick Kunzmann"
-__all__ = ["MinimizerRule"]
+__all__ = ["MinimizerRule", "SyncmerRule", "MincodeRule"]
 
 cimport cython
 cimport numpy as np
 
+from numbers import Integral
 import numpy as np
 from .kmeralphabet import KmerAlphabet
 from ..alphabet import AlphabetError
@@ -221,20 +222,31 @@ class MinimizerRule:
         return _minimize(
             kmers.astype(np.int64, copy=False),
             ordering.astype(np.int64, copy=False),
-            self._window
+            self._window,
+            include_duplicates=False
         )
 
 
 class SyncmerRule:
 
-    def __init__(self, alphabet, k, s, permutation=None):
+    def __init__(self, alphabet, k, s, permutation=None, offset=(0,)):
         if not s < k:
             raise ValueError("s must be smaller than k")
         self._window = k - s + 1
         self._alphabet = alphabet
         self._kmer_alph = KmerAlphabet(alphabet, k)
         self._smer_alph = KmerAlphabet(alphabet, s)
+        
         self._permutation = permutation
+
+        self._offset = np.asarray(offset, dtype=np.int64)
+        if len(np.unique(self._offset)) != self._offset:
+            raise ValueError("Offset must contain unique values")
+        self._offset[self._offset < 0] = self._window + self._offset
+        if (self._offset >= self._window).any() or (self._offset < 0).any():
+            raise IndexError(
+                f"Offset is out of window range"
+            )
     
 
     @property
@@ -273,16 +285,26 @@ class SyncmerRule:
                     f"sort keys for {len(smers)} s-mers"
                 )
 
-        # Open syncmers are k-mers, whose minimum s-mer is at the first
-        # position of the k-mer window
-        # Therefore, the minimum s-mer positions in the running k-mer
-        # windows are also automatically the syncmer positions
+        # The aboslute position of the minimum s-mer for each k-mer
         min_pos, _ = _minimize(
             smers,
             ordering.astype(np.int64, copy=False),
-            self._window
+            self._window,
+            include_duplicates=True
         )
-        return min_pos, kmers[min_pos]
+        # The position of the minimum s-mer relative to the start
+        # of the k-mer
+        relative_min_pos = min_pos - np.arange(len(smers))
+        # Syncmers are k-mers whose the minimum s-mer is at (one of)
+        # the given offet position(s)
+        syncmer_mask = None
+        for offset in self._offset:
+            if syncmer_mask is None:
+                syncmer_mask = relative_min_pos == offset
+            else:
+                syncmer_mask |= relative_min_pos == offset
+        syncmer_pos = np.where(syncmer_mask)[0]
+        return syncmer_pos, kmers[syncmer_pos]
 
 
 class MincodeRule:
@@ -342,7 +364,8 @@ class MincodeRule:
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def _minimize(int64[:] kmers, int64[:] ordering, uint32 window):
+def _minimize(int64[:] kmers, int64[:] ordering, uint32 window,
+              bint include_duplicates):
     """
     Implementation of the algorithm originally devised by
     Marcel van Herk.
@@ -390,15 +413,14 @@ def _minimize(int64[:] kmers, int64[:] ordering, uint32 window):
         else:
             combined_argcummin = reverse_argcummin
         
-        if combined_argcummin != prev_argcummin:
-            # A new minimizer is observed
-            # -> append it to return value
+        # If the same minimizer position was observed before, the
+        # duplicate is simply ignored, if 'include_duplicates' is false
+        if include_duplicates or combined_argcummin != prev_argcummin:
+            # Append minimizer to return value
             mininizer_pos[n_minimizers] = combined_argcummin
             minimizers[n_minimizers] = kmers[combined_argcummin]
             n_minimizers += 1
             prev_argcummin = combined_argcummin
-        # If the same minimizer position was observed before,
-        # the duplicate is simply ignored
 
     return (
         np.asarray(mininizer_pos)[:n_minimizers],
