@@ -65,9 +65,11 @@ def test_minimizer(seed, window, from_sequence, use_permutation):
     itertools.product(
         range(20),
         [2, 3, 5, 7],
-        [(0,), (1, 2, 3), (0, -1), (-5,-1)],
+        [(0,), (0, 1, 2), (0, -1), (-2, -1)],
         [False, True]
-    )
+    ),
+    # Print tuples in name of test
+    ids=lambda x: str(x).replace(" ", "") if isinstance(x, tuple) else None
 )
 def test_syncmer(seed, s, offset, use_permutation):
     """
@@ -95,11 +97,13 @@ def test_syncmer(seed, s, offset, use_permutation):
     # Use an inefficient but simple algorithm for comparison
     ref_syncmer_pos = []
     for i in range(len(kmers)):
-        order_in_kmer = order[i : i + K - s + 1]
-        min_smer_pos = np.min(order_in_kmer)
-        if np.isin(min_smer_pos, offset):
+        window = K - s + 1
+        order_in_kmer = order[i : i + window]
+        min_smer_pos = np.argmin(order_in_kmer)
+        # Wraparound negative indices -> modulo operation
+        if np.isin(min_smer_pos, np.array(offset) % window):
             ref_syncmer_pos.append(i)
-    ref_syncmer_pos = np.array(ref_syncmer_pos)
+    ref_syncmer_pos = np.array(ref_syncmer_pos, dtype=int)
     ref_syncmers = kmers[ref_syncmer_pos]
 
     syncmer_rule = align.SyncmerRule(

@@ -42,6 +42,7 @@ class MinimizerRule:
     window : int
         The size of the rolling window, where the minimizers are
         searched in.
+        In other words this is the number of *k-mers* per window.
         The window size must be at least 2.
     permutation : Permutation
         If set, the *k-mer* order is permuted, i.e.
@@ -240,9 +241,14 @@ class SyncmerRule:
         self._permutation = permutation
 
         self._offset = np.asarray(offset, dtype=np.int64)
-        if len(np.unique(self._offset)) != self._offset:
+        if len(np.unique(self._offset)) != len(self._offset):
             raise ValueError("Offset must contain unique values")
-        self._offset[self._offset < 0] = self._window + self._offset
+        # Wrap around negative indices
+        self._offset = np.where(
+            self._offset < 0,
+            self._window + self._offset,
+            self._offset
+        )
         if (self._offset >= self._window).any() or (self._offset < 0).any():
             raise IndexError(
                 f"Offset is out of window range"
@@ -273,7 +279,7 @@ class SyncmerRule:
                     "The sequence's alphabet does not fit the rule's alphabet"
                 )
         kmers = self._kmer_alph.create_kmers(sequence.code)
-        smers = self._kmer_alph.create_kmers(sequence.code)
+        smers = self._smer_alph.create_kmers(sequence.code)
 
         if self._permutation is None:
             ordering = smers
@@ -294,11 +300,13 @@ class SyncmerRule:
         )
         # The position of the minimum s-mer relative to the start
         # of the k-mer
-        relative_min_pos = min_pos - np.arange(len(smers))
+        relative_min_pos = min_pos - np.arange(len(kmers))
         # Syncmers are k-mers whose the minimum s-mer is at (one of)
         # the given offet position(s)
         syncmer_mask = None
         for offset in self._offset:
+            # For the usual number of offsets, this 'loop'-appoach is
+            # faster than np.isin()
             if syncmer_mask is None:
                 syncmer_mask = relative_min_pos == offset
             else:
