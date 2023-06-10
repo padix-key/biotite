@@ -128,6 +128,9 @@ def test_syncmer(seed, s, offset, use_permutation):
     ]
 )
 def test_syncmer_invalid_offset(offset, exception_type):
+    """
+    Test whether known invalid offsets lead to the expected exception.
+    """
     K = 11
     S = 2
     with pytest.raises(exception_type):
