@@ -3,6 +3,7 @@
 # information.
 
 import numpy as np
+import biotite.sequence as seq
 import biotite.sequence.align as align
 
 
@@ -62,5 +63,24 @@ def test_random_permutation_randomness():
 
 
 def test_frequency_permutation():
-    # TODO
-    raise
+    K = 5
+    kmer_alphabet = align.KmerAlphabet(
+        seq.NucleotideSequence.alphabet_unamb, K
+    )
+    np.random.seed(0)
+    # Generate a random count order for each k-mer
+    # Use 'np.arange()' to generate a unique order,
+    # but also use step != 1 to make the count != order
+    counts = np.arange(2 * len(kmer_alphabet), step=2)
+    np.random.shuffle(counts)
+    kmer_table = align.KmerTable.from_positions(
+        kmer_alphabet,
+        # The actual k-mer positions are dummy values,
+        # only the number of each k-mer is important for this test
+        {i: np.zeros((count, 2)) for i, count in enumerate(counts)}
+    )
+    permutation = align.FrequencyPermutation.from_table(kmer_table)
+
+    kmers_sorted_by_frequency = np.argsort(counts)
+    assert permutation.permute(kmers_sorted_by_frequency).tolist() \
+        == np.arange(len(kmer_alphabet)).tolist()
