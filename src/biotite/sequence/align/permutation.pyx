@@ -243,6 +243,7 @@ class FrequencyPermutation(Permutation):
         order = np.argsort(counts)
         # '_permutation_table' should perform the reverse mapping
         self._permutation_table = _invert_mapping(order)
+        self._kmer_alph = kmer_alphabet
     
 
     @property
@@ -252,6 +253,10 @@ class FrequencyPermutation(Permutation):
     @property
     def max(self):
         return len(self._permutation_table) - 1
+    
+    @property
+    def kmer_alphabet():
+        return self._kmer_alph
     
 
     def from_table(kmer_table):

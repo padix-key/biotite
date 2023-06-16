@@ -323,9 +323,13 @@ class MincodeRule:
                 "Compression factor must be equal to or larger than 1"
             )
         self._compression = compression
-        self._threshold = (permutation.max - permutation-min) / compression
         self._kmer_alph = kmer_alphabet
         self._permutation = permutation
+        if permutation is None:
+            permutation_range = len(kmer_alphabet)
+        else:
+            permutation_range = permutation.max - permutation.min + 1
+        self._threshold = permutation_range / compression
     
 
     @property
