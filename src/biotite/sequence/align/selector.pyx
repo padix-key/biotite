@@ -4,7 +4,8 @@
 
 __name__ = "biotite.sequence.align"
 __author__ = "Patrick Kunzmann"
-__all__ = ["MinimizerRule", "SyncmerRule", "CachedSyncmerRule", "MincodeRule"]
+__all__ = ["MinimizerSelector", "SyncmerSelector", "CachedSyncmerSelector",
+           "MincodeSelector"]
 
 cimport cython
 cimport numpy as np
@@ -23,9 +24,9 @@ ctypedef np.uint32_t uint32
 DEF MAX_INT_64 = 9223372036854775807
 
 
-class MinimizerRule:
+class MinimizerSelector:
     """
-    MinimizerRule(kmer_alphabet, window, permutation=None)
+    MinimizerSelector(kmer_alphabet, window, permutation=None)
 
     Find the *minimizers* from a given sequence.
 
@@ -38,7 +39,7 @@ class MinimizerRule:
     ----------
     kmer_alphabet : KmerAlphabet
         The *k-mer* alphabet that defines the *k-mer* size and the type
-        of sequence this :class:`MinimizerRule` can be applied on.
+        of sequence this :class:`MinimizerSelector` can be applied on.
     window : int
         The size of the rolling window, where the minimizers are
         searched in.
@@ -93,7 +94,7 @@ class MinimizerRule:
     Minimizers can be used to reduce the number of *k-mers* by selecting
     only the minimum *k-mer* in each window *w*:
 
-    >>> minimizer = MinimizerRule(kmer_alph, window=4)
+    >>> minimizer = MinimizerSelector(kmer_alph, window=4)
     >>> minimizer_pos, minimizers = minimizer.select(sequence1)
     >>> print(minimizer_pos)
     [ 1  2  5  8 11 14]
@@ -228,7 +229,7 @@ class MinimizerRule:
         )
 
 
-class SyncmerRule:
+class SyncmerSelector:
 
     def __init__(self, alphabet, k, s, permutation=None, offset=(0,)):
         if not s < k:
@@ -276,7 +277,8 @@ class SyncmerRule:
         if alphabet_check:
             if not self._alphabet.extends(sequence.alphabet):
                 raise ValueError(
-                    "The sequence's alphabet does not fit the rule's alphabet"
+                    "The sequence's alphabet does not fit "
+                    "the selector's alphabet"
                 )
         kmers = self._kmer_alph.create_kmers(sequence.code)
         smers = self._smer_alph.create_kmers(sequence.code)
@@ -359,7 +361,7 @@ class SyncmerRule:
         return np.where(syncmer_mask)[0]
 
 
-class CachedSyncmerRule(SyncmerRule):
+class CachedSyncmerSelector(SyncmerSelector):
     
     def __init__(self, alphabet, k, s, permutation=None, offset=(0,)):
         super().__init__(alphabet, k, s, permutation, offset)
@@ -375,7 +377,8 @@ class CachedSyncmerRule(SyncmerRule):
         if alphabet_check:
             if not self.alphabet.extends(sequence.alphabet):
                 raise ValueError(
-                    "The sequence's alphabet does not fit the rule's alphabet"
+                    "The sequence's alphabet does not fit "
+                    "the selector's alphabet"
                 )
         kmers = self.kmer_alphabet.create_kmers(sequence.code)
         return self.select_from_kmers(kmers)
@@ -388,7 +391,7 @@ class CachedSyncmerRule(SyncmerRule):
         return syncmer_pos, kmers[syncmer_pos]
 
 
-class MincodeRule:
+class MincodeSelector:
 
     def __init__(self, kmer_alphabet, compression, permutation=None):
         if compression < 1:
