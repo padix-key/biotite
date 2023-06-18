@@ -4,7 +4,7 @@
 
 __name__ = "biotite.sequence.align"
 __author__ = "Patrick Kunzmann"
-__all__ = ["MinimizerRule", "SyncmerRule", "MincodeRule"]
+__all__ = ["MinimizerRule", "SyncmerRule", "CachedSyncmerRule", "MincodeRule"]
 
 cimport cython
 cimport numpy as np
@@ -257,7 +257,7 @@ class SyncmerRule:
 
     @property
     def alphabet(self):
-        return self._alph
+        return self._alphabet
 
     @property
     def kmer_alphabet(self):
@@ -301,17 +301,90 @@ class SyncmerRule:
         # The position of the minimum s-mer relative to the start
         # of the k-mer
         relative_min_pos = min_pos - np.arange(len(kmers))
-        # Syncmers are k-mers whose the minimum s-mer is at (one of)
-        # the given offet position(s)
+        syncmer_pos = self._filter_syncmer_pos(relative_min_pos)
+        return syncmer_pos, kmers[syncmer_pos]
+    
+
+    def select_from_kmers(self, kmers):
+        """
+        The given `kmers` are not required to overlap.
+
+        Notes
+        -----
+        Since for *s-mer* creation, the *k-mers* need to be converted
+        back to symbol codes again and since the input *k-mers* are not
+        required to overlap, calling :meth:`select()` is much faster.
+        Howver, :meth:`select()` is only available, if a
+        :class:`Sequence` object is available.
+        """
+        cdef int64 i
+        
+        symbol_codes_for_each_kmer = self._kmer_alph.split(kmers)
+        
+        cdef int64[:] min_pos = np.zeros(
+            len(symbol_codes_for_each_kmer), dtype=np.int64
+        )
+        for i in range(symbol_codes_for_each_kmer.shape[0]):
+            smers = self._smer_alph.create_kmers(symbol_codes_for_each_kmer[i])
+            if self._permutation is None:
+                ordering = smers
+            else:
+                ordering = self._permutation.permute(smers)
+                if len(ordering) != len(smers):
+                    raise IndexError(
+                        f"The Permutation is defective, it gave {len(ordering)} "
+                        f"sort keys for {len(smers)} s-mers"
+                    )
+            min_pos[i] = np.argmin(ordering)
+        
+        syncmer_pos = self._filter_syncmer_pos(min_pos)
+        return syncmer_pos, kmers[syncmer_pos]
+    
+
+    def _filter_syncmer_pos(self, min_pos):
+        """
+        Get indices of *k-mers* that are syncmers, based on `min_pos`,
+        the position of the minimum *s-mer* in each *k-mer*.
+        Syncmers are k-mers whose the minimum s-mer is at (one of)
+        the given offet position(s).
+        """
         syncmer_mask = None
         for offset in self._offset:
             # For the usual number of offsets, this 'loop'-appoach is
             # faster than np.isin()
             if syncmer_mask is None:
-                syncmer_mask = relative_min_pos == offset
+                syncmer_mask = min_pos == offset
             else:
-                syncmer_mask |= relative_min_pos == offset
-        syncmer_pos = np.where(syncmer_mask)[0]
+                syncmer_mask |= min_pos == offset
+        return np.where(syncmer_mask)[0]
+
+
+class CachedSyncmerRule(SyncmerRule):
+    
+    def __init__(self, alphabet, k, s, permutation=None, offset=(0,)):
+        super().__init__(alphabet, k, s, permutation, offset)
+        # Check for all possible *k-mers*, whether they are syncmers
+        all_kmers = np.arange(len(self.kmer_alphabet))
+        syncmer_indices, _ = super().select_from_kmers(all_kmers)
+        # Convert the index array into a boolean mask
+        self._syncmer_mask = np.zeros(len(self.kmer_alphabet), dtype=bool)
+        self._syncmer_mask[syncmer_indices] = True
+    
+
+    def select(self, sequence, bint alphabet_check=True):
+        if alphabet_check:
+            if not self.alphabet.extends(sequence.alphabet):
+                raise ValueError(
+                    "The sequence's alphabet does not fit the rule's alphabet"
+                )
+        kmers = self.kmer_alphabet.create_kmers(sequence.code)
+        return self.select_from_kmers(kmers)
+    
+
+    def select_from_kmers(self, kmers):
+        """
+        """
+        syncmer_pos = np.where(self._syncmer_mask[kmers])[0]
         return syncmer_pos, kmers[syncmer_pos]
 
 

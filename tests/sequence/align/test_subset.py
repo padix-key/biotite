@@ -61,17 +61,18 @@ def test_minimizer(seed, window, from_sequence, use_permutation):
 
 
 @pytest.mark.parametrize(
-    "seed, s, offset, use_permutation",
+    "seed, s, offset, from_sequence, use_permutation",
     itertools.product(
         range(20),
         [2, 3, 5, 7],
         [(0,), (0, 1, 2), (0, -1), (-2, -1)],
+        [False, True],
         [False, True]
     ),
     # Print tuples in name of test
     ids=lambda x: str(x).replace(" ", "") if isinstance(x, tuple) else None
 )
-def test_syncmer(seed, s, offset, use_permutation):
+def test_syncmer(seed, s, offset, from_sequence, use_permutation):
     """
     Compare the fast syncmer identification algorithm against
     a trivial implementation on randomized input.
@@ -109,7 +110,42 @@ def test_syncmer(seed, s, offset, use_permutation):
     syncmer_rule = align.SyncmerRule(
         sequence.alphabet, K, s, permutation, offset
     )
-    test_syncmer_pos, test_syncmers = syncmer_rule.select(sequence)
+    if from_sequence:
+        test_syncmer_pos, test_syncmers = syncmer_rule.select(sequence)
+    else:
+        test_syncmer_pos, test_syncmers = syncmer_rule.select_from_kmers(kmers)
+
+    assert test_syncmer_pos.tolist() == ref_syncmer_pos.tolist()
+    assert test_syncmers.tolist() == ref_syncmers.tolist()
+
+
+def test_cached_syncmer():
+    """
+    Check if :class:`CachedSyncmerRule` gives the same results as
+    :class:`SyncmerRule` for randomized input.
+
+    This is not included :func:`test_syncmer()` as
+    :class:`CachedSyncmerRule` creation takes quite long and hence would
+    bloat the test run time due to the large parametrization matrix of
+    :func:`test_syncmer()`.
+    """
+    K = 5
+    S = 2
+    LENGTH = 1000
+
+    sequence = seq.NucleotideSequence(ambiguous=False)
+    np.random.seed(0)
+    sequence.code = np.random.randint(len(sequence.alphabet), size=LENGTH)
+
+    syncmer_rule = align.SyncmerRule(
+        sequence.alphabet, K, S
+    )
+    ref_syncmer_pos, ref_syncmers = syncmer_rule.select(sequence)
+
+    cached_syncmer_rule = align.CachedSyncmerRule(
+        sequence.alphabet, K, S
+    )
+    test_syncmer_pos, test_syncmers = cached_syncmer_rule.select(sequence)
 
     assert test_syncmer_pos.tolist() == ref_syncmer_pos.tolist()
     assert test_syncmers.tolist() == ref_syncmers.tolist()
