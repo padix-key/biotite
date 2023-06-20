@@ -28,7 +28,7 @@ class MinimizerSelector:
     """
     MinimizerSelector(kmer_alphabet, window, permutation=None)
 
-    Find the *minimizers* from a given sequence.
+    Selects the *minimizers* in sequences.
 
     In a rolling window of *k-mers*, the minimizer is defined as the
     *k-mer* with the minimum *k-mer* code :footcite:`Roberts2004`.
@@ -230,6 +230,106 @@ class MinimizerSelector:
 
 
 class SyncmerSelector:
+    """
+    SyncmerSelector(alphabet, k, s, permutation=None, offset=(0,))
+
+    Selects the *syncmers* in sequences.
+
+    Let the *s-mers* be all overlapping substrings of length *s* in a
+    *k-mer*.
+    A *k-mer* is a syncmer, if its minimum *s-mer* is at one of the
+    given offset positions :footcite:`Edgar2021`.
+    If the same minimum *s-mer* appears twice in a *k-mer*, the position
+    of the leftmost *s-mer* is taken.
+
+    Parameters
+    ----------
+    alphabet : Alphabet
+        The base alphabet the *k-mers* and *s-mers* are created from.
+        Defines the type of sequence this :class:`MinimizerSelector` can
+        be applied on.
+    k, s : int
+        The length of the *k-mers* and *s-mers*, respectively.
+    permutation : Permutation
+        If set, the *s-mer* order is permuted, i.e.
+        the minimum *s-mer* is chosen based on the ordering of the sort
+        keys from :class:`Permutation.permute()`.
+        This :class:`Permutation` must be compatible with *s*
+        (not with *k*).
+        By default, the standard order of the :class:`KmerAlphabet` is
+        used.
+        This standard order is often the lexicographical order, which is
+        known to yield suboptimal *density* in many cases
+        :footcite:`Roberts2004`.
+    offset : array-like of int
+        If the minimum *s-mer* in a *k-mer* is at one of the given
+        offset positions, that *k-mer* is a syncmer.
+        Negative values indicate the position from the end of the
+        *k-mer*.
+        By default, the minimum position needs to be at the start of the
+        *k-mer*, which is termed *open syncmer*.
+    
+    Attributes
+    ----------
+    alphabet : Alphabet
+        The base alphabet.
+    kmer_alphabet, smer_alphabet : int
+        The :class:`KmerAlphabet` for *k* and *s*, respectively.
+    permutation : Permutation
+        The permutation.
+    
+    See also
+    --------
+    CachedSyncmerSelector
+        A cached variant with faster syncmer selection at the cost of
+        increased initialization time.
+
+    Notes
+    -----
+    For syncmer computation from a sequence a fast algorithm
+    :footcite:`VanHerk1992` is used, whose runtime scales linearly with
+    the length of the sequence and is constant with regard to *k*.
+
+    References
+    ----------
+    
+    .. footbibliography::
+
+    Examples
+    --------
+
+    This example is taken from :footcite:`Edgar2021`:
+    The subset of *k-mers* that are *closed syncmers* are selected.
+    Closed syncmers are syncmers, where the minimum *s-mer* is in the
+    first or last position of the *k-mer*.
+    *s-mers* are ordered lexicographically in this example.
+
+    >>> sequence = NucleotideSequence("GGCAAGTGACA")
+    >>> kmer_alph = KmerAlphabet(sequence.alphabet, k=5)
+    >>> kmers = kmer_alph.create_kmers(sequence.code)
+    >>> closed_syncmer_selector = CachedSyncmerSelector(
+    ...     sequence.alphabet,
+    ...     # The same k as in the KmerAlphabet
+    ...     k=5,
+    ...     s=2,
+    ...     # The offset determines that closed syncmers will be selected
+    ...     offset=(0, -1)
+    ... )
+    >>> syncmer_pos, syncmers = closed_syncmer_selector.select(sequence)
+    >>> # Print all k-mers in the sequence and mark syncmers with a '*'
+    >>> for pos, kmer in enumerate(kmer_alph.create_kmers(sequence.code)):
+    ...     if pos in syncmer_pos:
+    ...         print("* " + "".join(kmer_alph.decode(kmer)))
+    ...     else:
+    ...         print("  " + "".join(kmer_alph.decode(kmer)))
+    * GGCAA
+      GCAAG
+      CAAGT
+    * AAGTG
+    * AGTGA
+    * GTGAC
+      TGACA
+    """
 
     def __init__(self, alphabet, k, s, permutation=None, offset=(0,)):
         if not s < k:
@@ -362,6 +462,89 @@ class SyncmerSelector:
 
 
 class CachedSyncmerSelector(SyncmerSelector):
+    """
+    CachedSyncmerSelector(alphabet, k, s, permutation=None, offset=(0,))
+
+    Selects the *syncmers* in sequences.
+
+    Fulsfills the same purpose as :class:`SyncmerSelector`, but
+    precomputes for each possible *k-mer*, whether it is a syncmer,
+    at initialization.
+    Hence, syncmer selection is faster at the cost of longer
+    initialization time.
+
+    Parameters
+    ----------
+    alphabet : Alphabet
+        The base alphabet the *k-mers* and *s-mers* are created from.
+        Defines the type of sequence this :class:`MinimizerSelector` can
+        be applied on.
+    k, s : int
+        The length of the *k-mers* and *s-mers*, respectively.
+    permutation : Permutation
+        If set, the *s-mer* order is permuted, i.e.
+        the minimum *s-mer* is chosen based on the ordering of the sort
+        keys from :class:`Permutation.permute()`.
+        This :class:`Permutation` must be compatible with *s*
+        (not with *k*).
+        By default, the standard order of the :class:`KmerAlphabet` is
+        used.
+        This standard order is often the lexicographical order, which is
+        known to yield suboptimal *density* in many cases
+        :footcite:`Roberts2004`.
+    offset : array-like of int
+        If the minimum *s-mer* in a *k-mer* is at one of the given
+        offset positions, that *k-mer* is a syncmer.
+        Negative values indicate the position from the end of the
+        *k-mer*.
+        By default, the minimum position needs to be at the start of the
+        *k-mer*, which is termed *open syncmer*.
+    
+    Attributes
+    ----------
+    alphabet : Alphabet
+        The base alphabet.
+    kmer_alphabet, smer_alphabet : int
+        The :class:`KmerAlphabet` for *k* and *s*, respectively.
+    permutation : Permutation
+        The permutation.
+    
+    See also
+    --------
+    CachedSyncmerSelector
+        A cached variant with faster syncmer selection at the cost of
+        increased initialization time.
+
+    Notes
+    -----
+    Both the initialization time and memory requirements are
+    proportional to the size of the `kmer_alphabet`, i.e. :math:`n^k`.
+    Hence, it is adviced to use this class only for rather small
+    alphabets.
+
+    References
+    ----------
+    
+    .. footbibliography::
+
+    Examples
+    --------
+
+    sequence = NucleotideSequence("GGCAAGTGACA")
+    kmer_alph = KmerAlphabet(sequence.alphabet, k=5)
+    # The initialization can quite a long time for large *k-mer* alphabets...
+    closed_syncmer_selector = CachedSyncmerSelector(
+        sequence.alphabet,
+        # The same k as in the KmerAlphabet
+        k=5,
+        s=2,
+        # The offset determines that closed syncmers will be selected
+        offset=(0, -1)
+    )
+    # ...but the actual syncmer identification is very fast
+    syncmer_pos, syncmers = closed_syncmer_selector.select(sequence)
+    print(syncmers)
+    """
     
     def __init__(self, alphabet, k, s, permutation=None, offset=(0,)):
         super().__init__(alphabet, k, s, permutation, offset)
