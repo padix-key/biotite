@@ -184,7 +184,8 @@ def test_syncmer_invalid_offset(offset, exception_type):
 def test_mincode(use_permutation):
     """
     Simple test whether :class:`MincodeSelector` selects *k-mers* below
-    the threshold value.
+    the threshold value and whether the compression factor is correctly
+    used.
     """
     K = 5
     COMPRESSION = 4
@@ -195,10 +196,12 @@ def test_mincode(use_permutation):
     
     if use_permutation:
         permutation = align.RandomPermutation()
+        permutation_offset = permutation.min
         permutation_range = permutation.max - permutation.min + 1
         order = permutation.permute(kmers)
     else:
         permutation = None
+        permutation_offset = 0
         permutation_range = len(kmer_alph)
         order = kmers
     
@@ -207,5 +210,7 @@ def test_mincode(use_permutation):
     )
 
     _, mincode_pos = mincode_selector.select_from_kmers(kmers)
-    threshold = permutation_range / COMPRESSION
-    assert mincode_pos.tolist() == np.where(order <= threshold)[0].tolist()
+    threshold = permutation_offset + permutation_range / COMPRESSION
+    assert mincode_pos.tolist() == np.where(order < threshold)[0].tolist()
+    assert len(mincode_pos) * COMPRESSION \
+        == pytest.approx(len(kmers), rel=0.02)
