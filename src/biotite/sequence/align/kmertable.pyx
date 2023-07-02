@@ -331,38 +331,13 @@ cdef class KmerTable:
         CC: (0, 1)
         TA: (0, 4)
         """
-        # Check length of input lists
-        if ref_ids is not None and len(ref_ids) != len(sequences):
-            raise IndexError(
-                f"{len(ref_ids)} reference IDs were given, "
-                f"but there are {len(sequences)} sequences"
-            )
-        if ignore_masks is not None and len(ignore_masks) != len(sequences):
-            raise IndexError(
-                f"{len(ignore_masks)} masks were given, "
-                f"but there are {len(sequences)} sequences"
-            )
-
-        # Check for alphabet compatibility
-        if alphabet is None:
-            alphabet = common_alphabet((seq.alphabet for seq in sequences))
-            if alphabet is None:
-                raise ValueError(
-                    "There is no common alphabet that extends all alphabets"
-                )
-        else:
-            for alph in (seq.alphabet for seq in sequences):
-                if not alphabet.extends(alph):
-                    raise ValueError(
-                        "The given alphabet is incompatible with a least one "
-                        "alphabet of the given sequences"
-                    )
+        ref_ids = _compute_ref_ids(ref_ids, sequences)
+        ignore_masks = _compute_masks(ignore_masks, sequences)
+        alphabet = _compute_alphabet(
+            alphabet, (sequence.alphabet for sequence in sequences)
+        )
         
         table = KmerTable(KmerAlphabet(alphabet, k, spacing))
-
-        # Create reference IDs if no given
-        if ref_ids is None:
-            ref_ids = np.arange(len(sequences))
 
         # Calculate k-mers
         kmers_list = [
@@ -370,9 +345,6 @@ cdef class KmerTable:
             for sequence in sequences
         ]
 
-        # Create k-mer masks
-        if ignore_masks is None:
-            ignore_masks = [None] * len(sequences)
         masks = [
             table._prepare_mask(ignore_mask, len(sequence))
             for sequence, ignore_mask in zip(sequences, ignore_masks)
@@ -456,49 +428,23 @@ cdef class KmerTable:
         BIQ: (0, 0)
         BIT: (1, 3)
         """
-        if not isinstance(kmer_alphabet, KmerAlphabet):
-            raise TypeError(
-                f"Got {type(kmer_alphabet).__name__}, "
-                f"but KmerAlphabet was expected"
-            )
-        
-        # Check length of input lists
-        if ref_ids is not None and len(ref_ids) != len(kmers):
-            raise IndexError(
-                f"{len(ref_ids)} reference IDs were given, "
-                f"but there are {len(kmers)} k-mer arrays"
-            )
-        if masks is not None and len(masks) != len(kmers):
-            raise IndexError(
-                f"{len(masks)} masks were given, "
-                f"but there are {len(kmers)} k-mer arrays"
-            )
+        _check_kmer_alphabet(kmer_alphabet)
+        _check_multiple_kmer_bounds(kmers, kmer_alphabet)
 
-        # Check given k-mers for out-of-bounds values
-        for arr in kmers:
-            if np.any(arr < 0) or np.any(arr >= len(kmer_alphabet)):
-                raise AlphabetError(
-                    "Given k-mer codes do not represent valid k-mers"
-                )
+        ref_ids = _compute_ref_ids(ref_ids, kmers)
+        masks = _compute_masks(masks, kmers)
         
         table = KmerTable(kmer_alphabet)
 
-        if ref_ids is None:
-            ref_ids = np.arange(len(kmers))
-
-        # Create k-mer masks
-        if masks is None:
-            masks = [np.ones(len(arr), dtype=np.uint8) for arr in kmers]
-        else:
-            masks = [
-                np.ones(len(arr), dtype=np.uint8) if mask is None
-                # Convert boolean mask into uint8 array to be able
-                # to handle it as memory view
-                else np.frombuffer(
-                    mask.astype(bool, copy=False), dtype=np.uint8
-                )
-                for mask, arr in zip(masks, kmers)
-            ]
+        masks = [
+            np.ones(len(arr), dtype=np.uint8) if mask is None
+            # Convert boolean mask into uint8 array to be able
+            # to handle it as memory view
+            else np.frombuffer(
+                mask.astype(bool, copy=False), dtype=np.uint8
+            )
+            for mask, arr in zip(masks, kmers)
+        ]
 
         for arr, mask in zip(kmers, masks):
             table._count_masked_kmers(arr, mask)
@@ -593,30 +539,13 @@ cdef class KmerTable:
                 ^^^
         <BLANKLINE>
         """
-        if not isinstance(kmer_alphabet, KmerAlphabet):
-            raise TypeError(
-                f"Got {type(kmer_alphabet).__name__}, "
-                f"but KmerAlphabet was expected"
-            )
-        
-        # Check length of input lists
-        if ref_ids is not None and len(ref_ids) != len(kmers):
-            raise IndexError(
-                f"{len(ref_ids)} reference IDs were given, "
-                f"but there are {len(kmers)} k-mer arrays"
-            )
+        _check_kmer_alphabet(kmer_alphabet)
+        _check_multiple_kmer_bounds(kmers, kmer_alphabet)
+        _check_position_shape(positions, kmers)
 
-        # Check given k-mers for out-of-bounds values
-        for arr in kmers:
-            if np.any(arr < 0) or np.any(arr >= len(kmer_alphabet)):
-                raise AlphabetError(
-                    "Given k-mer codes do not represent valid k-mers"
-                )
+        ref_ids = _compute_ref_ids(ref_ids, kmers)
         
         table = KmerTable(kmer_alphabet)
-
-        if ref_ids is None:
-            ref_ids = np.arange(len(kmers))
 
         for arr in kmers:
             table._count_kmers(arr)
@@ -668,16 +597,9 @@ cdef class KmerTable:
         TA: (100, 1), (100, 3), (101, 1)
         TT: (100, 0)
         """
-        # Check for alphabet compatibility
-        kmer_alphabet = tables[0].kmer_alphabet
-        for alph in (table.kmer_alphabet for table in tables):
-            if not kmer_alphabet == alph:
-                raise ValueError(
-                    "The *k-mer* alphabets of the tables are not equal "
-                    "to each other"
-                )
+        _check_same_kmer_alphabet(tables)
         
-        merged_table = KmerTable(kmer_alphabet)
+        merged_table = KmerTable(tables[0].kmer_alphabet)
 
         # Sum the number of appearances of each k-mer from the tables
         for table in tables:
@@ -873,16 +795,7 @@ cdef class KmerTable:
         cdef ptr[:] self_ptr_array = self._ptr_array
         cdef ptr[:] other_ptr_array = table._ptr_array
 
-        if self._kmer_alph.base_alphabet != table._kmer_alph.base_alphabet:
-            raise ValueError(
-                "The alphabet used for this k-mer index table is not equal to "
-                "the alphabet of the other k-mer index table"
-            )
-        if self._k != table._k:
-            raise ValueError(
-                "The 'k' parameter used for this k-mer index table is not "
-                "equal to 'k' of the other k-mer index"
-            )
+        _check_same_kmer_alphabet((self, table))
 
         # This array will store the match positions
         # As the final number of matches is unknown, a list-like
@@ -1184,16 +1097,13 @@ cdef class KmerTable:
         # to disable repetitive initialization checks
         cdef ptr[:] ptr_array = self._ptr_array
 
-
+        _check_kmer_bounds(kmers, self._kmer_alph)
         if positions.shape[0] != kmers.shape[0]:
             raise IndexError(
                 f"{positions.shape[0]} positions were given "
                 f"for {kmers.shape[0]} k-mers"
             )
-        if np.any(kmers < 0) or np.any(kmers >= len(self._kmer_alph)):
-            raise AlphabetError(
-                "Given k-mer codes do not represent valid k-mers"
-            )
+
         cdef uint32[:] pos_array = positions.astype(np.uint32, copy=False)
         cdef int64[:] kmer_array = kmers.astype(np.int64, copy=False)
 
@@ -1309,10 +1219,7 @@ cdef class KmerTable:
                     counts[kmer] = (length - 2) // 2
         
         else:
-            if np.any(kmers < 0) or np.any(kmers >= len(self._kmer_alph)):
-                raise AlphabetError(
-                    "Given k-mer codes do not represent valid k-mers"
-                )
+            _check_kmer_bounds(kmers, self._kmer_alph)
 
             kmer_array = kmers.astype(np.int64, copy=False)
             counts = np.zeros(kmer_array.shape[0], dtype=np.int64)
@@ -1854,3 +1761,128 @@ def _to_kmer_mask(uint8[:] mask not None, kmer_alphabet):
             kmer_mask[i] = is_retained
     
     return np.asarray(kmer_mask)
+
+
+
+def _check_position_shape(position_arrays, kmer_arrays):
+    """
+    Check if the given lists and each element have the same length
+    and raise an exception, if this is not teh case.
+    """
+    if len(position_arrays) != len(kmer_arrays):
+        raise IndexError(
+            f"{len(position_arrays)} position arrays "
+            f"for {len(kmer_arrays)} k-mer arrays were given"
+        )
+    for i, (positions, kmers) in enumerate(
+        zip(position_arrays, kmer_arrays)
+    ):
+        if len(positions) != len(kmers):
+            raise IndexError(
+                f"{len(positions)} positions"
+                f"for {len(kmers)} k-mers were given at index {i}"
+            )
+
+
+
+def _check_same_kmer_alphabet(tables):
+    """
+    Check if the *k-mer* alphabets of all tables are equal.
+    """
+    kmer_alphabet = tables[0].kmer_alphabet
+    for alph in (table.kmer_alphabet for table in tables):
+        if not kmer_alphabet == alph:
+            raise ValueError(
+                "The *k-mer* alphabets of the tables are not equal "
+                "to each other"
+            )
+
+
+def _check_kmer_bounds(kmers, kmer_alphabet):
+    """
+    Check k-mer codes for out-of-bounds values.
+    """
+    if np.any(kmers < 0) or np.any(kmers >= len(kmer_alphabet)):
+        raise AlphabetError(
+            "Given k-mer codes do not represent valid k-mers"
+        )
+
+
+def _check_multiple_kmer_bounds(kmer_arrays, kmer_alphabet):
+    """
+    Check given arrays of k-mer codes for out-of-bounds values.
+    """
+    for kmers in kmer_arrays:
+        if np.any(kmers < 0) or np.any(kmers >= len(kmer_alphabet)):
+            raise AlphabetError(
+                "Given k-mer codes do not represent valid k-mers"
+            )
+
+
+def _check_kmer_alphabet(kmer_alph):
+    """
+    Check if the given object is a KmerAaphabet and raise an exception,
+    if this is not the case
+    """
+    if not isinstance(kmer_alph, KmerAlphabet):
+        raise TypeError(
+            f"Got {type(kmer_alph).__name__}, but KmerAlphabet was expected"
+        )
+
+
+def _compute_masks(masks, sequences):
+    """
+    Check, if the number of masks match the number of sequences, and
+    raise an exception if this is not the case.
+    If no masks are given, create a respective list of ``None`` values.
+    """
+    if masks is None:
+        return [None] * len(sequences)
+    else:
+        if len(masks) != len(sequences):
+            raise IndexError(
+                f"{len(masks)} masks were given, "
+                f"but there are {len(sequences)} sequences"
+            )
+        return masks
+        
+
+def _compute_ref_ids(ref_ids, sequences):
+    """
+    Check, if the number of reference IDs match the number of
+    sequences, and raise an exception, if this is not the case.
+    If no reference IDs are given, create an array that simply
+    enumerates.
+    """
+    if ref_ids is None:
+        return np.arange(len(sequences))
+    else:
+        if len(ref_ids) != len(sequences):
+            raise IndexError(
+                f"{len(ref_ids)} reference IDs were given, "
+                f"but there are {len(sequences)} sequences"
+            )
+        return ref_ids
+
+
+def _compute_alphabet(given_alphabet, sequence_alphabets):
+    """
+    If `given_alphabet` is None, find a common alphabet among
+    `sequence_alphabets` and raise an exception if this is not possible.
+    Otherwise just check compatibility of alphabets.
+    """
+    if given_alphabet is None:
+        alphabet = common_alphabet(sequence_alphabets)
+        if alphabet is None:
+            raise ValueError(
+                "There is no common alphabet that extends all alphabets"
+            )
+        return alphabet
+    else:
+        for alph in sequence_alphabets:
+            if not given_alphabet.extends(alph):
+                raise ValueError(
+                    "The given alphabet is incompatible with a least one "
+                    "alphabet of the given sequences"
+                )
+        return given_alphabet
