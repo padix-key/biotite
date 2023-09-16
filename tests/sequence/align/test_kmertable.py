@@ -2,6 +2,7 @@
 # under the 3-Clause BSD License. Please see 'LICENSE.rst' for further
 # information.
 
+import itertools
 import string
 import pickle
 import numpy as np
@@ -19,6 +20,10 @@ def alphabet():
     return seq.NucleotideSequence.unambiguous_alphabet()
 
 @pytest.fixture
+def bins():
+    return 1000
+
+@pytest.fixture
 def random_sequences(k, alphabet):
     N_SEQS = 10
     SEQ_LENGTH = 1000
@@ -32,17 +37,27 @@ def random_sequences(k, alphabet):
     return sequences
 
 
-
-@pytest.mark.parametrize("spacing", [None, "10111011011", "1001111010101"])
-def test_from_sequences(k, random_sequences, spacing):
+@pytest.mark.parametrize(
+    "spacing, is_binned",
+    itertools.product(
+        [None, "10111011011", "1001111010101"],
+        [False, True]
+    )
+)
+def test_from_sequences(k, bins, random_sequences, spacing, is_binned):
     """
     Test the :meth:`from_sequences()` constructor, by checking for each
     sequence position, if the position is in the C-array of the
     corresponding k-mer.
     """
-    table = align.KmerTable.from_sequences(
-        k, random_sequences, spacing=spacing
-    )
+    if is_binned:
+        table = align.BinnedKmerTable.from_sequences(
+            bins, k, random_sequences, spacing=spacing
+        )
+    else:
+        table = align.KmerTable.from_sequences(
+            k, random_sequences, spacing=spacing
+        )
     kmer_alph = align.KmerAlphabet(random_sequences[0].alphabet, k, spacing)
     assert kmer_alph == table.kmer_alphabet
 
@@ -53,7 +68,6 @@ def test_from_sequences(k, random_sequences, spacing):
             else:
                 kmer = kmer_alph.fuse(sequence.code[kmer_alph.spacing + j])
             assert np.array([i,j]) in table[kmer]
-
 
 
 def test_from_kmers(k, random_sequences):
