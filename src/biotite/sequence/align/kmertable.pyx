@@ -25,7 +25,7 @@ ctypedef np.uint32_t uint32
 ctypedef np.uint64_t ptr
 
 
-cdef enum ElementSize:
+cdef enum EntrySize:
     # The size (number of 32 bit elements) for each entry in C-arrays
     # of KmerTable and BinnedKmerTable, respectively
     #
@@ -368,7 +368,7 @@ cdef class KmerTable:
         
         # Transfrom count array into pointer array with C-array of
         # appropriate size
-        _init_c_arrays(table._ptr_array, ElementSize.UNBINNED)
+        _init_c_arrays(table._ptr_array, EntrySize.UNBINNED)
 
         # Fill the C-arrays with the k-mer positions
         for kmers, ref_id, mask in zip(kmers_list, ref_ids, masks):
@@ -460,7 +460,7 @@ cdef class KmerTable:
         for arr, mask in zip(kmers, masks):
             table._count_masked_kmers(arr, mask)
         
-        _init_c_arrays(table._ptr_array, ElementSize.UNBINNED)
+        _init_c_arrays(table._ptr_array, EntrySize.UNBINNED)
 
         for arr, ref_id, mask in zip(kmers, ref_ids, masks):
             table._add_kmers(arr, ref_id, mask)
@@ -561,7 +561,7 @@ cdef class KmerTable:
         for arr in kmers:
             table._count_kmers(arr)
         
-        _init_c_arrays(table._ptr_array, ElementSize.UNBINNED)
+        _init_c_arrays(table._ptr_array, EntrySize.UNBINNED)
 
         for pos, arr, ref_id in zip(positions, kmers, ref_ids):
             table._add_kmer_selection(
@@ -623,10 +623,10 @@ cdef class KmerTable:
             # required to count the number of positions for each *k-mer*
             _count_table_entries(
                 merged_table._ptr_array, table._ptr_array,
-                ElementSize.UNBINNED
+                EntrySize.UNBINNED
             )
         
-        _init_c_arrays(merged_table._ptr_array, ElementSize.UNBINNED)
+        _init_c_arrays(merged_table._ptr_array, EntrySize.UNBINNED)
 
         for table in tables:
             _append_entries(merged_table._ptr_array, table._ptr_array)
@@ -1231,7 +1231,7 @@ cdef class KmerTable:
         if kmers is None:
             counts = np.zeros(ptr_array.shape[0], dtype=np.int64)
             for kmer in range(ptr_array.shape[0]):
-                kmer_ptr = <int64*> ptr_array[kmer]
+                kmer_ptr = <int64*> (ptr_array[kmer])
                 if kmer_ptr != NULL:
                     # First 64 bytes are length of C-array
                     length = kmer_ptr[0]
@@ -1246,7 +1246,7 @@ cdef class KmerTable:
             counts = np.zeros(kmer_array.shape[0], dtype=np.int64)
             for i in range(kmer_array.shape[0]):
                 kmer = kmer_array[i]
-                kmer_ptr = <int64*> ptr_array[kmer]
+                kmer_ptr = <int64*> (ptr_array[kmer])
                 if kmer_ptr != NULL:
                     length = kmer_ptr[0]
                     counts[i] = (length - 2) // 2
@@ -1545,7 +1545,7 @@ cdef class KmerTable:
                 current_size = (<int64*> kmer_ptr)[0]
                 kmer_ptr[current_size    ] = ref_id
                 kmer_ptr[current_size + 1] = seq_pos
-                (<int64*> kmer_ptr)[0] = current_size + ElementSize.UNBINNED
+                (<int64*> kmer_ptr)[0] = current_size + EntrySize.UNBINNED
     
     @cython.boundscheck(False)
     @cython.wraparound(False)
@@ -1581,7 +1581,7 @@ cdef class KmerTable:
             current_size = (<int64*> kmer_ptr)[0]
             kmer_ptr[current_size    ] = ref_id
             kmer_ptr[current_size + 1] = seq_pos
-            (<int64*> kmer_ptr)[0] = current_size + ElementSize.UNBINNED
+            (<int64*> kmer_ptr)[0] = current_size + EntrySize.UNBINNED
     
 
     cdef inline bint _is_initialized(self):
@@ -1687,7 +1687,7 @@ cdef class BinnedKmerTable:
         
         # Transfrom count array into pointer array with C-array of
         # appropriate size
-        _init_c_arrays(table._ptr_array, ElementSize.BINNED)
+        _init_c_arrays(table._ptr_array, EntrySize.BINNED)
 
         # Fill the C-arrays with the k-mer positions
         for kmers, ref_id, mask in zip(kmers_list, ref_ids, masks):
@@ -1719,7 +1719,7 @@ cdef class BinnedKmerTable:
         for arr, mask in zip(kmers, masks):
             table._count_masked_kmers(arr, mask)
         
-        _init_c_arrays(table._ptr_array, ElementSize.BINNED)
+        _init_c_arrays(table._ptr_array, EntrySize.BINNED)
 
         for arr, ref_id, mask in zip(kmers, ref_ids, masks):
             table._add_kmers(arr, ref_id, mask)
@@ -1741,7 +1741,7 @@ cdef class BinnedKmerTable:
         for arr in kmers:
             table._count_kmers(arr)
         
-        _init_c_arrays(table._ptr_array, ElementSize.BINNED)
+        _init_c_arrays(table._ptr_array, EntrySize.BINNED)
 
         for pos, arr, ref_id in zip(positions, kmers, ref_ids):
             table._add_kmer_selection(
@@ -1764,10 +1764,10 @@ cdef class BinnedKmerTable:
         for table in tables:
             _count_table_entries(
                 merged_table._ptr_array, table._ptr_array,
-                ElementSize.BINNED
+                EntrySize.BINNED
             )
         
-        _init_c_arrays(merged_table._ptr_array, ElementSize.BINNED)
+        _init_c_arrays(merged_table._ptr_array, EntrySize.BINNED)
 
         for table in tables:
             _append_entries(merged_table._ptr_array, table._ptr_array)
@@ -1815,9 +1815,11 @@ cdef class BinnedKmerTable:
                     other_length = (<int64*>other_bin_ptr)[0]
                     self_length  = (<int64*>self_bin_ptr )[0]
                     for i in range(2, other_length, 4):
-                        other_kmer = other_bin_ptr[i]
+                        # Hacky syntax to achieve casting to int64*
+                        # after offset is applied
+                        other_kmer = (<int64*>(other_bin_ptr + i))[0]
                         for j in range(2, self_length, 4):
-                            self_kmer = self_bin_ptr[j]
+                            self_kmer = (<int64*>(self_bin_ptr + j))[0]
                             if self_kmer == other_kmer:
                                 # The k-mers are not only in the same
                                 # bin, but they are actually equal
@@ -1837,7 +1839,7 @@ cdef class BinnedKmerTable:
                 if other_bin_ptr != NULL:
                     other_length = (<int64*>other_bin_ptr)[0]
                     for i in range(2, other_length, 4):
-                        other_kmer = other_bin_ptr[i]
+                        other_kmer = (<int64*>(other_bin_ptr + i))[0]
                         # If a similarity rule exists, iterate not only over
                         # the exact k-mer, but over all k-mers similar to
                         # the current k-mer
@@ -1851,7 +1853,7 @@ cdef class BinnedKmerTable:
                             if self_bin_ptr != NULL:
                                 self_length  = (<int64*>self_bin_ptr)[0]
                                 for j in range(2, self_length, 4):
-                                    self_kmer = self_bin_ptr[j]
+                                    self_kmer = (<int64*>(self_bin_ptr + j))[0]
                                     if self_kmer == sim_kmer:
                                         if match_i >= matches.shape[0]:
                                             # The 'matches' array is full
@@ -1872,12 +1874,13 @@ cdef class BinnedKmerTable:
     def match(self, sequence, similarity_rule=None, ignore_mask=None):
         cdef int INIT_SIZE = 1
         
-        cdef int64 bin, sim_bin
+        cdef int64 bin
         cdef int64 self_kmer, other_kmer, sim_kmer
         cdef int64 match_i
-        cdef int64 i, j, l
+        cdef int64 i, l
         cdef int64 length
         cdef uint32* bin_ptr
+        cdef uint32* array_stop
 
         # This variable will only be used if a similarity rule exists
         cdef int64[:] similar_kmers
@@ -1915,8 +1918,10 @@ cdef class BinnedKmerTable:
                     if bin_ptr != NULL:
                         # There is at least one entry in this bin
                         length = (<int64*>bin_ptr)[0]
-                        for j in range(2, length, 4):
-                            self_kmer = bin_ptr[j]
+                        array_stop = bin_ptr + length
+                        bin_ptr += 2
+                        while bin_ptr < array_stop:
+                            self_kmer = (<int64*>bin_ptr)[0]
                             if self_kmer == other_kmer:
                                 # The k-mers are not only in the same
                                 # bin, but they are actually equal
@@ -1925,9 +1930,14 @@ cdef class BinnedKmerTable:
                                     # -> double its size
                                     matches = expand(np.asarray(matches))
                                 matches[match_i, 0] = i
-                                matches[match_i, 1] = bin_ptr[j+2]
-                                matches[match_i, 2] = bin_ptr[j+3]
+                                bin_ptr += 2
+                                matches[match_i, 1] = bin_ptr[0]
+                                bin_ptr += 1
+                                matches[match_i, 2] = bin_ptr[0]
+                                bin_ptr += 1
                                 match_i += 1
+                            else:
+                                bin_ptr += EntrySize.BINNED
         
         else:
             for i in range(kmers.shape[0]):
@@ -1951,8 +1961,10 @@ cdef class BinnedKmerTable:
                         if bin_ptr != NULL:
                             # There is at least one entry in this bin
                             length = (<int64*>bin_ptr)[0]
-                            for j in range(2, length, 4):
-                                self_kmer = bin_ptr[j]
+                            array_stop = bin_ptr + length
+                            bin_ptr += 2
+                            while bin_ptr < array_stop:
+                                self_kmer = (<int64*>bin_ptr)[0]
                                 if self_kmer == sim_kmer:
                                     # The k-mers are not only in the same
                                     # bin, but they are actually equal
@@ -1961,9 +1973,14 @@ cdef class BinnedKmerTable:
                                         # -> double its size
                                         matches = expand(np.asarray(matches))
                                     matches[match_i, 0] = i
-                                    matches[match_i, 1] = bin_ptr[j+2]
-                                    matches[match_i, 2] = bin_ptr[j+3]
+                                    bin_ptr += 2
+                                    matches[match_i, 1] = bin_ptr[0]
+                                    bin_ptr += 1
+                                    matches[match_i, 2] = bin_ptr[0]
+                                    bin_ptr += 1
                                     match_i += 1
+                                else:
+                                    bin_ptr += EntrySize.BINNED
 
         # Trim to correct size and return
         return np.asarray(matches[:match_i])
@@ -1974,7 +1991,7 @@ cdef class BinnedKmerTable:
     def match_kmer_selection(self, positions, kmers):
         cdef int INIT_SIZE = 1
         
-        cdef int64 i, j
+        cdef int64 i
 
         cdef int64 bin
         cdef int64 self_kmer, other_kmer
@@ -1982,6 +1999,7 @@ cdef class BinnedKmerTable:
         cdef int64 seq_pos
         cdef int64 length
         cdef uint32* bin_ptr
+        cdef uint32* array_stop
 
         # Store in new variable
         # to disable repetitive initialization checks
@@ -2012,8 +2030,10 @@ cdef class BinnedKmerTable:
             if bin_ptr != NULL:
                 # There is at least one entry in this bin
                 length = (<int64*>bin_ptr)[0]
-                for j in range(2, length, 4):
-                    self_kmer = bin_ptr[j]
+                array_stop = bin_ptr + length
+                bin_ptr += 2
+                while bin_ptr < array_stop:
+                    self_kmer = (<int64*>bin_ptr)[0]
                     if self_kmer == other_kmer:
                         # The k-mers are not only in the same
                         # bin, but they are actually equal
@@ -2022,9 +2042,14 @@ cdef class BinnedKmerTable:
                             # -> double its size
                             matches = expand(np.asarray(matches))
                         matches[match_i, 0] = seq_pos
-                        matches[match_i, 1] = bin_ptr[j+2]
-                        matches[match_i, 2] = bin_ptr[j+3]
+                        bin_ptr += 2
+                        matches[match_i, 1] = bin_ptr[0]
+                        bin_ptr += 1
+                        matches[match_i, 2] = bin_ptr[0]
+                        bin_ptr += 1
                         match_i += 1
+                    else:
+                        bin_ptr += EntrySize.BINNED
 
         # Trim to correct size and return
         return np.asarray(matches[:match_i])
@@ -2038,14 +2063,15 @@ cdef class BinnedKmerTable:
         -----
         Es each bin need to be inspected for the actual *k-mer* entries,
         this method requires far more computation time than its
-        `KmerTable` equivalent. 
+        :class:`KmerTable` equivalent. 
         """
-        cdef int64 i, j
+        cdef int64 i
 
         cdef int64 bin
         cdef int64 kmer, self_kmer
         cdef int64 length
-        cdef int64* bin_ptr
+        cdef uint32* bin_ptr
+        cdef uint32* array_stop
         cdef ptr[:] ptr_array = self._ptr_array
 
         _check_kmer_bounds(kmers, self._kmer_alph)
@@ -2055,13 +2081,16 @@ cdef class BinnedKmerTable:
         for i in range(kmer_array.shape[0]):
             kmer = kmer_array[i]
             bin = kmer % self._bins
-            bin_ptr = <int64*> ptr_array[bin]
+            bin_ptr = <uint32*> (ptr_array[bin])
             if bin_ptr != NULL:
-                length = bin_ptr[0]
-                for j in range(2, length, 4):
-                    self_kmer = bin_ptr[j]
+                length = (<int64*>bin_ptr)[0]
+                array_stop = bin_ptr + length
+                bin_ptr += 2
+                while bin_ptr < array_stop:
+                    self_kmer = (<int64*>bin_ptr)[0]
                     if self_kmer == kmer:
-                        counts[kmer] += 1
+                        counts[i] += 1
+                    bin_ptr += EntrySize.BINNED
         
         return np.asarray(counts)
 
@@ -2255,6 +2284,7 @@ cdef class BinnedKmerTable:
         cdef int64 current_size
         cdef int64 kmer
         cdef uint32* bin_ptr
+        cdef uint32* kmer_val_ptr
 
         # Store in new variable
         # to disable repetitive initialization checks
@@ -2271,12 +2301,14 @@ cdef class BinnedKmerTable:
                 kmer = kmers[seq_pos]
                 bin_ptr = <uint32*> ptr_array[kmer % self._bins]
 
-                # Append k-mer reference ID and position
+                # Append k-mer, reference ID and position
                 current_size = (<int64*> bin_ptr)[0]
-                (<int64*> bin_ptr)[current_size] = kmer
+                kmer_val_ptr = &bin_ptr[current_size]
+                (<int64*> kmer_val_ptr)[0] = kmer
                 bin_ptr[current_size + 2] = ref_id
                 bin_ptr[current_size + 3] = seq_pos
-                (<int64*> bin_ptr)[0] = current_size + ElementSize.BINNED
+                (<int64*> bin_ptr)[0] = current_size + EntrySize.BINNED
+
     
     @cython.boundscheck(True)
     @cython.wraparound(True)
@@ -2287,6 +2319,7 @@ cdef class BinnedKmerTable:
         cdef int64 current_size
         cdef int64 kmer
         cdef uint32* bin_ptr
+        cdef uint32* kmer_val_ptr
 
         if positions.shape[0] != kmers.shape[0]:
             raise IndexError(
@@ -2305,10 +2338,11 @@ cdef class BinnedKmerTable:
 
             # Append k-mer reference ID and position
             current_size = (<int64*> bin_ptr)[0]
-            (<int64*> bin_ptr)[current_size] = kmer
+            kmer_val_ptr = &bin_ptr[current_size]
+            (<int64*> kmer_val_ptr)[0] = kmer
             bin_ptr[current_size + 2] = ref_id
             bin_ptr[current_size + 3] = seq_pos
-            (<int64*> bin_ptr)[0] = current_size + ElementSize.BINNED
+            (<int64*> bin_ptr)[0] = current_size + EntrySize.BINNED
     
 
     cdef inline bint _is_initialized(self):
@@ -2335,13 +2369,13 @@ def _count_table_entries(ptr[:] count_array, ptr[:] ptr_array,
     cdef int64 length
     cdef int64 count
     cdef int64 bin
-    cdef int64* bin_ptr
+    cdef uint32* bin_ptr
 
     for bin in range(count_array.shape[0]):
-        bin_ptr = <int64*> ptr_array[bin]
+        bin_ptr = <uint32*> (ptr_array[bin])
         if bin_ptr != NULL:
-            # First 64 bytes are length of C-array
-            length = <ptr>bin_ptr[0]
+            # First 64 bits are length of C-array
+            length = (<int64*>bin_ptr)[0]
             count = (length - 2) // element_size
             count_array[bin] += count
 
