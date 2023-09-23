@@ -1359,6 +1359,8 @@ cdef class KmerTable:
             return False
         return self._equals(item)
     
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
     def _equals(self, KmerTable other):
         cdef int64 kmer
         cdef int64 i
@@ -1440,7 +1442,6 @@ cdef class KmerTable:
         return np.asarray(relevant_kmers), pickled_pointers
     
 
-    @cython.cdivision(True)
     @cython.boundscheck(False)
     @cython.wraparound(False)
     def __setstate__(self, state):
@@ -1775,8 +1776,9 @@ cdef class BinnedKmerTable:
         return merged_table
             
 
-    @cython.boundscheck(True)
-    @cython.wraparound(True)
+    @cython.cdivision(True)
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
     def match_table(self, BinnedKmerTable table, similarity_rule=None):
         cdef int INIT_SIZE = 1
         
@@ -1869,8 +1871,9 @@ cdef class BinnedKmerTable:
         return np.asarray(matches[:match_i])
     
 
-    @cython.boundscheck(True)
-    @cython.wraparound(True)
+    @cython.cdivision(True)
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
     def match(self, sequence, similarity_rule=None, ignore_mask=None):
         cdef int INIT_SIZE = 1
         
@@ -1986,8 +1989,9 @@ cdef class BinnedKmerTable:
         return np.asarray(matches[:match_i])
     
 
-    @cython.boundscheck(True)
-    @cython.wraparound(True)
+    @cython.cdivision(True)
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
     def match_kmer_selection(self, positions, kmers):
         cdef int INIT_SIZE = 1
         
@@ -2055,8 +2059,9 @@ cdef class BinnedKmerTable:
         return np.asarray(matches[:match_i])
 
 
-    @cython.boundscheck(True)
-    @cython.wraparound(True)
+    @cython.cdivision(True)
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
     def count(self, kmers):
         """
         Notes
@@ -2096,8 +2101,8 @@ cdef class BinnedKmerTable:
 
 
     @cython.cdivision(True)
-    @cython.boundscheck(True)
-    @cython.wraparound(True)
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
     def __getitem__(self, int64 kmer):
         cdef int64 i, j
         cdef int64 self_kmer
@@ -2141,6 +2146,8 @@ cdef class BinnedKmerTable:
             return False
         return self._equals(item)
     
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
     def _equals(self, BinnedKmerTable other):
         cdef int64 bin
         cdef int64 i
@@ -2185,8 +2192,8 @@ cdef class BinnedKmerTable:
         return (self._bins, self._kmer_alph), {}
     
 
-    @cython.boundscheck(True)
-    @cython.wraparound(True)
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
     def __getstate__(self):
         cdef int64 i
         cdef int64 bin
@@ -2213,9 +2220,8 @@ cdef class BinnedKmerTable:
         return np.asarray(relevant_bins), pickled_pointers
     
 
-    @cython.cdivision(True)
-    @cython.boundscheck(True)
-    @cython.wraparound(True)
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
     def __setstate__(self, state):
         cdef int64 i
         cdef int64 bin
@@ -2249,8 +2255,9 @@ cdef class BinnedKmerTable:
 
     ## These private methods work analogous to KmerTable
 
-    @cython.boundscheck(True)
-    @cython.wraparound(True)
+    @cython.cdivision(True)
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
     def _count_kmers(self, int64[:] kmers):
         cdef uint32 seq_pos
         cdef int64 kmer
@@ -2262,8 +2269,9 @@ cdef class BinnedKmerTable:
             # Pool all k-mers that should go into the same bin
             count_array[kmer % self._bins] += 1
 
-    @cython.boundscheck(True)
-    @cython.wraparound(True)
+    @cython.cdivision(True)
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
     def _count_masked_kmers(self, int64[:] kmers, uint8[:] mask):
         cdef uint32 seq_pos
         cdef int64 kmer
@@ -2277,8 +2285,9 @@ cdef class BinnedKmerTable:
                 count_array[kmer % self._bins] += 1
     
 
-    @cython.boundscheck(True)
-    @cython.wraparound(True)
+    @cython.cdivision(True)
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
     def _add_kmers(self, int64[:] kmers, uint32 ref_id, uint8[:] mask):
         cdef uint32 seq_pos
         cdef int64 current_size
@@ -2309,9 +2318,10 @@ cdef class BinnedKmerTable:
                 bin_ptr[current_size + 3] = seq_pos
                 (<int64*> bin_ptr)[0] = current_size + EntrySize.BINNED
 
-    
-    @cython.boundscheck(True)
-    @cython.wraparound(True)
+
+    @cython.cdivision(True)    
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
     def _add_kmer_selection(self, uint32[:] positions, int64[:] kmers,
                          uint32 ref_id):
         cdef uint32 i
@@ -2357,8 +2367,8 @@ cdef class BinnedKmerTable:
 
 
 
-@cython.boundscheck(True)
-@cython.wraparound(True)
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def _count_table_entries(ptr[:] count_array, ptr[:] ptr_array,
                          int64 element_size):
     """
@@ -2380,8 +2390,8 @@ def _count_table_entries(ptr[:] count_array, ptr[:] ptr_array,
             count_array[bin] += count
 
 
-@cython.boundscheck(True)
-@cython.wraparound(True)
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def _init_c_arrays(ptr[:] ptr_array, int64 element_size):
     """
     Transform an array of counts into a pointer array, by replacing the
@@ -2415,8 +2425,8 @@ def _init_c_arrays(ptr[:] ptr_array, int64 element_size):
             ptr_array[bin] = <ptr>bin_ptr
 
 
-@cython.boundscheck(True)
-@cython.wraparound(True)
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def _append_entries(ptr[:] trg_ptr_array, ptr[:] src_ptr_array):
     cdef int64 bin
     cdef int64 self_length, other_length, new_length
