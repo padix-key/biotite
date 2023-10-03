@@ -1056,7 +1056,7 @@ cdef class KmerTable:
             Each row contains one *k-mer* match.
             Each match has the following columns:
 
-                0. The sequence position in the input *k-mer*, taken
+                0. The sequence position of the input *k-mer*, taken
                    from `positions`
                 1. The reference ID of the matched sequence in the table
                 2. The sequence position of the matched *k-mer* in the
