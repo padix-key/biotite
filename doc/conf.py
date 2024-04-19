@@ -85,7 +85,12 @@ copyright = "The Biotite contributors"
 version = biotite.__version__
 release = biotite.__version__
 
-exclude_patterns = ["build"]
+exclude_patterns = [
+    # These are automatically incorporated by sphinx_gallery
+    "examples/scripts/**/README.rst",
+    # Execution times are not reported to the user
+    "sg_execution_times.rst",
+]
 
 pygments_style = "sphinx"
 
@@ -159,8 +164,14 @@ html_context = {
 }
 
 sphinx_gallery_conf = {
-    "examples_dirs"             : "examples/scripts",
-    "gallery_dirs"              : "examples/gallery",
+    "examples_dirs"             : [
+        "examples/scripts/sequence",
+        "examples/scripts/structure"
+    ],
+    "gallery_dirs"              : [
+        "examples/gallery/sequence",
+        "examples/gallery/structure"
+    ],
     "within_subsection_order"   : FileNameSortKey,
     # Do not run example scripts with a trailing '_noexec'
     "filename_pattern"          : "^((?!_noexec).)*$",
