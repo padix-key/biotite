@@ -30,7 +30,6 @@ package_path = join(dirname(doc_path), "src")
 sys.path.insert(0, doc_path)
 import apidoc
 import viewcode
-import tutorial
 import scraper
 import bibliography
 import key
@@ -41,14 +40,6 @@ matplotlib.rcdefaults()
 
 # Creation of API documentation
 apidoc.create_api_doc(package_path, join(doc_path, "apidoc"))
-
-# Creation of tutorial *.rst files from Python script
-if not "plot_gallery=0" in sys.argv:
-    tutorial.create_tutorial(
-        join("tutorial", "src"),
-        join("tutorial", "target")
-    )
-
 
 # Use custom citation sytle
 pybtex.plugin.register_plugin(
@@ -72,6 +63,7 @@ warnings.filterwarnings(
 )
 
 extensions = [
+    "jupyter_sphinx",
     "sphinx.ext.autodoc",
     "sphinx.ext.autosummary",
     "sphinx.ext.doctest",
