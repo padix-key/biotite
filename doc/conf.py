@@ -73,6 +73,7 @@ extensions = [
     "sphinx_gallery.gen_gallery",
     "sphinx_design",
     "sphinx_copybutton",
+    "notfound.extension",
     "numpydoc",
 ]
 
@@ -107,6 +108,7 @@ autosummary_generate = False
 bibtex_bibfiles = ["references.bib"]
 bibtex_default_style = "ieee"
 
+notfound_urls_prefix = "/latest/"
 
 #### HTML ####
 
