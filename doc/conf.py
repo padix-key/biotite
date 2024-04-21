@@ -120,7 +120,7 @@ html_css_files = [
     "fonts.css"
 ]
 html_title = "Biotite"
-html_logo = "static/assets/general/biotite_logo_navbar.png"
+html_logo = "static/assets/general/biotite_logo.svg"
 html_favicon = "static/assets/general/biotite_icon_32p.png"
 htmlhelp_basename = "BiotiteDoc"
 html_theme_options = {
