@@ -124,6 +124,12 @@ html_logo = "static/assets/general/biotite_logo_navbar.png"
 html_favicon = "static/assets/general/biotite_icon_32p.png"
 htmlhelp_basename = "BiotiteDoc"
 html_theme_options = {
+    "navbar_start": ["navbar-logo", "version-switcher"],
+    "switcher": {
+        "json_url": "https://www.biotite-python.org/latest/_static/switcher.json",
+        "version_match": version,
+    },
+    "show_version_warning_banner": True,
     "header_links_before_dropdown": 7,
     "pygment_light_style": "friendly",
     "icon_links": [
