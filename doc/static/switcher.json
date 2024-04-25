@@ -2,7 +2,12 @@
     {
         "name": "0.40",
         "version": "0.40.0",
-        "url": "https://www.biotite-python.org/0.40.0/",
+        "url": "https://www.biotite-python.org/0.40.0/"
+    },
+    {
+        "name": "0.123",
+        "version": "0.123.0",
+        "url": "https://www.biotite-python.org/0.123.0/",
         "preferred": true
     }
 ]
