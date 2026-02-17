@@ -19,13 +19,52 @@ __all__ = [
 ]
 
 import itertools
-
+from enum import IntEnum
 import networkx as nx
 import numpy as np
+from biotite.rust.structure import BondList, bond_type_members
+from biotite.structure.error import BadStructureError
 
-from biotite.rust.structure import BondList, BondType
 
-from .error import BadStructureError
+def _without_aromaticity(self):
+    """
+    Get the non-aromatic counterpart of this bond type.
+
+    If this bond type is already non-aromatic, it is returned unchanged.
+
+    Returns
+    -------
+    BondType
+        The non-aromatic counterpart of this bond type.
+
+    Examples
+    --------
+    >>> BondType.AROMATIC_DOUBLE.without_aromaticity()
+    <BondType.DOUBLE: 2>
+    >>> BondType.SINGLE.without_aromaticity()
+    <BondType.SINGLE: 1>
+    """
+    match self:
+        case BondType.AROMATIC_SINGLE:
+            return BondType.SINGLE
+        case BondType.AROMATIC_DOUBLE:
+            return BondType.DOUBLE
+        case BondType.AROMATIC_TRIPLE:
+            return BondType.TRIPLE
+        case BondType.AROMATIC:
+            return BondType.ANY
+        case _:
+            return self
+
+
+# Create BondType IntEnum dynamically from Rust enum members
+BondType = IntEnum(
+    "BondType",
+    {name: value for name, value in bond_type_members().items()},
+    module=__name__,
+)
+BondType.__doc__ = "This enum type represents the type of a chemical bond."
+BondType.without_aromaticity = _without_aromaticity
 
 
 # fmt: off
@@ -79,7 +118,11 @@ _DEFAULT_DISTANCE_RANGE = {
 
 
 def connect_via_distances(
-    atoms, distance_range=None, inter_residue=True, default_bond_type=BondType.ANY, periodic=False
+    atoms,
+    distance_range=None,
+    inter_residue=True,
+    default_bond_type=BondType.ANY,
+    periodic=False,
 ):
     """
     connect_via_distances(atoms, distance_range=None, inter_residue=True,
@@ -143,9 +186,9 @@ def connect_via_distances(
 
     .. footbibliography::
     """
-    from .atoms import AtomArray
-    from .geometry import distance
-    from .residues import get_residue_starts
+    from biotite.structure.atoms import AtomArray
+    from biotite.structure.geometry import distance
+    from biotite.structure.residues import get_residue_starts
 
     if not isinstance(atoms, AtomArray):
         raise TypeError(f"Expected 'AtomArray', not '{type(atoms).__name__}'")
@@ -199,7 +242,11 @@ def connect_via_distances(
                 dist = distances[atom_index1, atom_index2]
                 if dist >= min_dist and dist <= max_dist:
                     # Convert BondType to int if necessary
-                    bt_int = int(default_bond_type) if hasattr(default_bond_type, '__int__') else default_bond_type
+                    bt_int = (
+                        int(default_bond_type)
+                        if hasattr(default_bond_type, "__int__")
+                        else default_bond_type
+                    )
                     bonds.append(
                         (
                             curr_start_i + atom_index1,
@@ -301,8 +348,8 @@ def connect_via_residue_names(atoms, inter_residue=True, custom_bond_dict=None):
      'XYZ': {('A', 'B'): <BondType.SINGLE: 1>,
              ('B', 'C'): <BondType.SINGLE: 1>}}
     """
-    from .info.bonds import bonds_in_residue
-    from .residues import get_residue_starts
+    from biotite.structure.info.bonds import bonds_in_residue
+    from biotite.structure.residues import get_residue_starts
 
     bonds = []
     atom_names = atoms.atom_name
@@ -331,7 +378,7 @@ def connect_via_residue_names(atoms, inter_residue=True, custom_bond_dict=None):
             # (e.g. in altlocs)
             # -> create all possible bond combinations
             # Convert BondType to int if necessary
-            bt_int = int(bond_type) if hasattr(bond_type, '__int__') else bond_type
+            bt_int = int(bond_type) if hasattr(bond_type, "__int__") else bond_type
             for i in range(len(atom_indices1)):
                 for j in range(len(atom_indices2)):
                     bonds.append(
@@ -376,7 +423,7 @@ def _connect_inter_residue(atoms, residue_starts):
     BondList
         A bond list containing all inter residue bonds.
     """
-    from .info.misc import link_type
+    from biotite.structure.info.misc import link_type
 
     bonds = []
     atom_names = atoms.atom_name
@@ -419,13 +466,19 @@ def _connect_inter_residue(atoms, residue_starts):
         # Index in atom array for atom name in current residue
         # Addition of 'curr_start_i' is necessary, as only a slice of
         # 'atom_names' is taken, beginning at 'curr_start_i'
-        curr_connect_indices = curr_start_i + np.where(
-            atom_names[curr_start_i:next_start_i] == curr_connect_atom_name
-        )[0]
+        curr_connect_indices = (
+            curr_start_i
+            + np.where(atom_names[curr_start_i:next_start_i] == curr_connect_atom_name)[
+                0
+            ]
+        )
         # Index in atom array for atom name in next residue
-        next_connect_indices = next_start_i + np.where(
-            atom_names[next_start_i:after_next_start_i] == next_connect_atom_name
-        )[0]
+        next_connect_indices = (
+            next_start_i
+            + np.where(
+                atom_names[next_start_i:after_next_start_i] == next_connect_atom_name
+            )[0]
+        )
         if len(curr_connect_indices) == 0 or len(next_connect_indices) == 0:
             # The connector atoms are not found in the adjacent residues
             # -> skip this bond
@@ -591,7 +644,8 @@ def find_rotatable_bonds(bonds):
             if not in_same_cycle:
                 rotatable_bonds.append((i, j, int(bond_type)))
     if rotatable_bonds:
-        return BondList(bonds.get_atom_count(), np.array(rotatable_bonds, dtype=np.int64))
+        return BondList(
+            bonds.get_atom_count(), np.array(rotatable_bonds, dtype=np.int64)
+        )
     else:
         return BondList(bonds.get_atom_count())
-

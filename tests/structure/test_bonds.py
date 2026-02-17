@@ -556,7 +556,7 @@ def test_find_rotatable_bonds(res_name, expected_bonds):
 
 
 @pytest.mark.parametrize(
-    "cif_path, expected_bond_idces",
+    "cif_path, expected_bond_indices",
     [
         (
             join(data_dir("structure"), "3o5r.cif"),
@@ -564,7 +564,7 @@ def test_find_rotatable_bonds(res_name, expected_bonds):
         )
     ],
 )
-def test_canonical_bonds_with_altloc_occupancy(cif_path, expected_bond_idces):
+def test_canonical_bonds_with_altloc_occupancy(cif_path, expected_bond_indices):
     """
     Test whether canonical inter-residue bonds are correctly computed when
     `altloc="occupancy"` and the higher-occupancy atom occurs second in the CIF file.
@@ -575,7 +575,7 @@ def test_canonical_bonds_with_altloc_occupancy(cif_path, expected_bond_idces):
         cif_file.block, altloc="occupancy", include_bonds=True
     )
 
-    atom1, atom2 = expected_bond_idces
+    atom1, atom2 = expected_bond_indices
 
     # Assert that the canonical inter-residue bond exists
     assert atom2 in atom_array.bonds.get_bonds(atom1)[0]

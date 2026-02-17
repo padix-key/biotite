@@ -2,8 +2,8 @@ use numpy::ndarray::{Array1, Array2};
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArray2};
 use pyo3::exceptions;
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList, PyModule, PySet, PyTuple};
-use std::collections::HashSet;
+use pyo3::types::{PyModule, PySet, PyTuple};
+use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 
 /// This enum type represents the type of a chemical bond.
@@ -18,130 +18,56 @@ use std::convert::TryFrom;
 /// - ``AROMATIC_TRIPLE`` - Aromatic bond with a triple formal bond
 /// - ``COORDINATION`` - Coordination complex involving a metal atom
 /// - ``AROMATIC`` - Aromatic bond without specification of the formal bond
-#[allow(non_camel_case_types)]
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-#[pyclass(module = "biotite.structure", eq, eq_int)]
 #[repr(u8)]
 pub enum BondType {
-    ANY = 0,
-    SINGLE = 1,
-    DOUBLE = 2,
-    TRIPLE = 3,
-    QUADRUPLE = 4,
-    AROMATIC_SINGLE = 5,
-    AROMATIC_DOUBLE = 6,
-    AROMATIC_TRIPLE = 7,
-    COORDINATION = 8,
-    AROMATIC = 9,
+    Any = 0,
+    Single = 1,
+    Double = 2,
+    Triple = 3,
+    Quadruple = 4,
+    AromaticSingle = 5,
+    AromaticDouble = 6,
+    AromaticTriple = 7,
+    Coordination = 8,
+    Aromatic = 9,
 }
 
-/// All BondType variants for iteration support
-const BOND_TYPE_VARIANTS: [BondType; 10] = [
-    BondType::ANY,
-    BondType::SINGLE,
-    BondType::DOUBLE,
-    BondType::TRIPLE,
-    BondType::QUADRUPLE,
-    BondType::AROMATIC_SINGLE,
-    BondType::AROMATIC_DOUBLE,
-    BondType::AROMATIC_TRIPLE,
-    BondType::COORDINATION,
-    BondType::AROMATIC,
-];
-
-/// Names of all BondType variants (in order)
-const BOND_TYPE_NAMES: [&str; 10] = [
-    "ANY",
-    "SINGLE",
-    "DOUBLE",
-    "TRIPLE",
-    "QUADRUPLE",
-    "AROMATIC_SINGLE",
-    "AROMATIC_DOUBLE",
-    "AROMATIC_TRIPLE",
-    "COORDINATION",
-    "AROMATIC",
-];
-
-#[pymethods]
 impl BondType {
-    /// Create a BondType from an integer value.
-    /// This allows `BondType(1)` to work like `IntEnum`.
-    #[new]
-    fn new(value: u32) -> PyResult<Self> {
-        BondType::try_from(value)
-    }
-
-    /// The name of the enum member (like IntEnum.name).
-    #[getter]
-    fn name(&self) -> &'static str {
-        BOND_TYPE_NAMES[*self as usize]
-    }
-
-    /// The integer value of the enum member (like IntEnum.value).
-    #[getter]
-    fn value(&self) -> u8 {
-        *self as u8
-    }
-
-    /// Remove aromaticity from the bond type.
-    ///
-    /// :attr:`BondType.AROMATIC_{ORDER}` is converted into
-    /// :attr:`BondType.{ORDER}`.
-    ///
-    /// Returns
-    /// -------
-    /// new_bond_type : BondType
-    ///     The :class:`BondType` without aromaticity.
-    fn without_aromaticity(&self) -> BondType {
+    fn without_aromaticity(&self) -> Self {
         match self {
-            BondType::AROMATIC_SINGLE => BondType::SINGLE,
-            BondType::AROMATIC_DOUBLE => BondType::DOUBLE,
-            BondType::AROMATIC_TRIPLE => BondType::TRIPLE,
-            BondType::AROMATIC => BondType::ANY,
+            BondType::AromaticSingle => BondType::Single,
+            BondType::AromaticDouble => BondType::Double,
+            BondType::AromaticTriple => BondType::Triple,
+            BondType::Aromatic => BondType::Any,
             _ => *self,
         }
     }
+}
 
-    fn __int__(&self) -> u8 {
-        *self as u8
-    }
-
-    fn __hash__(&self) -> u8 {
-        *self as u8
-    }
-
-    fn __repr__(&self) -> String {
-        format!("<BondType.{}: {}>", self.name(), self.value())
-    }
-
-    fn __str__(&self) -> String {
-        format!("BondType.{}", self.name())
-    }
-
-    /// Return the number of enum members.
-    /// Use as `len(BondType.members())` or `BondType.count()`.
-    #[staticmethod]
-    fn count() -> usize {
-        BOND_TYPE_VARIANTS.len()
-    }
-
-    /// Return a list of all enum members for iteration.
-    /// Use as `for bt in BondType.members(): ...`
-    #[staticmethod]
-    fn members() -> Vec<BondType> {
-        BOND_TYPE_VARIANTS.to_vec()
-    }
-
-    /// Return a dict mapping names to members (like IntEnum._member_map_).
-    #[staticmethod]
-    fn member_map<'py>(py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
-        let dict = PyDict::new(py);
-        for (i, variant) in BOND_TYPE_VARIANTS.iter().enumerate() {
-            dict.set_item(BOND_TYPE_NAMES[i], *variant)?;
-        }
-        Ok(dict)
-    }
+#[pyfunction]
+pub fn bond_type_members() -> HashMap<String, u8> {
+    let mut map = HashMap::new();
+    map.insert("ANY".to_string(), BondType::Any as u8);
+    map.insert("SINGLE".to_string(), BondType::Single as u8);
+    map.insert("DOUBLE".to_string(), BondType::Double as u8);
+    map.insert("TRIPLE".to_string(), BondType::Triple as u8);
+    map.insert("QUADRUPLE".to_string(), BondType::Quadruple as u8);
+    map.insert(
+        "AROMATIC_SINGLE".to_string(),
+        BondType::AromaticSingle as u8,
+    );
+    map.insert(
+        "AROMATIC_DOUBLE".to_string(),
+        BondType::AromaticDouble as u8,
+    );
+    map.insert(
+        "AROMATIC_TRIPLE".to_string(),
+        BondType::AromaticTriple as u8,
+    );
+    map.insert("COORDINATION".to_string(), BondType::Coordination as u8);
+    map.insert("AROMATIC".to_string(), BondType::Aromatic as u8);
+    map
 }
 
 impl TryFrom<u32> for BondType {
@@ -149,21 +75,48 @@ impl TryFrom<u32> for BondType {
 
     fn try_from(value: u32) -> Result<Self, Self::Error> {
         match value {
-            0 => Ok(BondType::ANY),
-            1 => Ok(BondType::SINGLE),
-            2 => Ok(BondType::DOUBLE),
-            3 => Ok(BondType::TRIPLE),
-            4 => Ok(BondType::QUADRUPLE),
-            5 => Ok(BondType::AROMATIC_SINGLE),
-            6 => Ok(BondType::AROMATIC_DOUBLE),
-            7 => Ok(BondType::AROMATIC_TRIPLE),
-            8 => Ok(BondType::COORDINATION),
-            9 => Ok(BondType::AROMATIC),
+            0 => Ok(BondType::Any),
+            1 => Ok(BondType::Single),
+            2 => Ok(BondType::Double),
+            3 => Ok(BondType::Triple),
+            4 => Ok(BondType::Quadruple),
+            5 => Ok(BondType::AromaticSingle),
+            6 => Ok(BondType::AromaticDouble),
+            7 => Ok(BondType::AromaticTriple),
+            8 => Ok(BondType::Coordination),
+            9 => Ok(BondType::Aromatic),
             _ => Err(exceptions::PyValueError::new_err(format!(
                 "BondType {} is invalid",
                 value
             ))),
         }
+    }
+}
+
+/// Convert from Python's BondType IntEnum to Rust's BondType.
+/// This allows accepting biotite.structure.BondType enum members directly.
+impl<'a, 'py> FromPyObject<'a, 'py> for BondType {
+    type Error = PyErr;
+
+    fn extract(ob: pyo3::Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        // Extract the integer value from the Python enum (IntEnum supports __int__)
+        let value: u32 = ob.extract()?;
+        BondType::try_from(value)
+    }
+}
+
+/// Convert from Rust's BondType to Python's biotite.structure.BondType IntEnum.
+/// This ensures that BondType values returned to Python are proper enum members.
+impl<'py> IntoPyObject<'py> for BondType {
+    type Target = PyAny;
+    type Output = Bound<'py, PyAny>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        // Import biotite.structure.BondType and instantiate with the int value
+        let bond_type_class = py.import("biotite.structure")?.getattr("BondType")?;
+        let value = self as u8;
+        bond_type_class.call1((value,))
     }
 }
 
@@ -193,9 +146,9 @@ impl Bond {
         }
     }
 
-    /// Convert to a tuple for Python representation.
-    fn as_tuple(&self) -> (u32, u32, u8) {
-        (self.atom1, self.atom2, self.bond_type as u8)
+    /// Convert into an array for Python representation.
+    fn as_array(&self) -> [u32; 3] {
+        [self.atom1, self.atom2, self.bond_type as u32]
     }
 }
 
@@ -270,7 +223,11 @@ pub struct BondList {
 impl BondList {
     #[new]
     #[pyo3(signature = (atom_count, bonds=None))]
-    fn new<'py>(py: Python<'py>, atom_count: u32, bonds: Option<&Bound<'py, PyAny>>) -> PyResult<Self> {
+    fn new<'py>(
+        py: Python<'py>,
+        atom_count: u32,
+        bonds: Option<&Bound<'py, PyAny>>,
+    ) -> PyResult<Self> {
         match bonds {
             Some(bonds_obj) => {
                 // Import numpy and convert to array with int64 dtype
@@ -316,7 +273,7 @@ impl BondList {
                         }
                         BondType::try_from(bt_val as u32)?
                     } else {
-                        BondType::ANY
+                        BondType::Any
                     };
                     bond_vec.push(Bond::new(idx1, idx2, bond_type));
                 }
@@ -400,9 +357,7 @@ impl BondList {
     ///     Must be positive.
     fn offset_indices(&mut self, offset: i32) -> PyResult<()> {
         if offset < 0 {
-            return Err(exceptions::PyValueError::new_err(
-                "Offset must be positive",
-            ));
+            return Err(exceptions::PyValueError::new_err("Offset must be positive"));
         }
         let offset = offset as u32;
         for bond in &mut self.bonds {
@@ -459,6 +414,56 @@ impl BondList {
         Ok(set)
     }
 
+    /// as_graph()
+    ///
+    /// Obtain a graph representation of the :class:`BondList`.
+    ///
+    /// Returns
+    /// -------
+    /// bond_set : Graph
+    ///     A *NetworkX* :class:`Graph`.
+    ///     The atom indices are nodes, the bonds are edges.
+    ///     Each edge has a ``"bond_type"`` attribute containing the
+    ///     :class:`BondType`.
+    ///
+    /// Examples
+    /// --------
+    ///
+    /// >>> bond_list = BondList(5, np.array([(1,0,2), (1,3,1), (1,4,1)]))
+    /// >>> graph = bond_list.as_graph()
+    /// >>> print(graph.nodes)
+    /// [0, 1, 3, 4]
+    /// >>> print(graph.edges)
+    /// [(0, 1), (1, 3), (1, 4)]
+    /// >>> for i, j in graph.edges:
+    /// ...     print(i, j, graph.get_edge_data(i, j))
+    /// 0 1 {'bond_type': <BondType.DOUBLE: 2>}
+    /// 1 3 {'bond_type': <BondType.SINGLE: 1>}
+    /// 1 4 {'bond_type': <BondType.SINGLE: 1>}
+    fn as_graph<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let nx = PyModule::import(py, "networkx")?;
+        let graph = nx.call_method0("Graph")?;
+
+        // Build edges list with bond_type attribute
+        let edges = pyo3::types::PyList::empty(py);
+        for bond in &self.bonds {
+            let edge_data = pyo3::types::PyDict::new(py);
+            edge_data.set_item("bond_type", bond.bond_type)?;
+            let edge_tuple = PyTuple::new(
+                py,
+                [
+                    bond.atom1.into_pyobject(py)?.into_any(),
+                    bond.atom2.into_pyobject(py)?.into_any(),
+                    edge_data.into_any(),
+                ],
+            )?;
+            edges.append(edge_tuple)?;
+        }
+
+        graph.call_method1("add_edges_from", (edges,))?;
+        Ok(graph)
+    }
+
     /// Remove aromaticity from the bond types.
     ///
     /// :attr:`BondType.AROMATIC_{ORDER}` is converted into
@@ -475,9 +480,9 @@ impl BondList {
         for bond in &mut self.bonds {
             if matches!(
                 bond.bond_type,
-                BondType::AROMATIC_SINGLE | BondType::AROMATIC_DOUBLE | BondType::AROMATIC_TRIPLE
+                BondType::AromaticSingle | BondType::AromaticDouble | BondType::AromaticTriple
             ) {
-                bond.bond_type = BondType::AROMATIC;
+                bond.bond_type = BondType::Aromatic;
             }
         }
     }
@@ -485,7 +490,7 @@ impl BondList {
     /// Convert all bonds to :attr:`BondType.ANY`.
     fn remove_bond_order(&mut self) {
         for bond in &mut self.bonds {
-            bond.bond_type = BondType::ANY;
+            bond.bond_type = BondType::Any;
         }
     }
 
@@ -563,6 +568,7 @@ impl BondList {
     ///     instances.
     ///     This array specifies the type (or order) of the bonds to
     ///     the connected atoms.
+    #[allow(clippy::type_complexity)]
     fn get_bonds<'py>(
         &self,
         py: Python<'py>,
@@ -684,53 +690,6 @@ impl BondList {
         matrix.into_pyarray(py)
     }
 
-    /// as_graph()
-    ///
-    /// Obtain a graph representation of the :class:`BondList`.
-    ///
-    /// Returns
-    /// -------
-    /// bond_set : Graph
-    ///     A *NetworkX* :class:`Graph`.
-    ///     The atom indices are nodes, the bonds are edges.
-    ///     Each edge has a ``"bond_type"`` attribute containing the
-    ///     :class:`BondType`.
-    ///
-    /// Examples
-    /// --------
-    ///
-    /// >>> bond_list = BondList(5, np.array([(1,0,2), (1,3,1), (1,4,1)]))
-    /// >>> graph = bond_list.as_graph()
-    /// >>> print(graph.nodes)
-    /// [0, 1, 3, 4]
-    /// >>> print(graph.edges)
-    /// [(0, 1), (1, 3), (1, 4)]
-    /// >>> for i, j in graph.edges:
-    /// ...     print(i, j, graph.get_edge_data(i, j))
-    /// 0 1 {'bond_type': <BondType.DOUBLE: 2>}
-    /// 1 3 {'bond_type': <BondType.SINGLE: 1>}
-    /// 1 4 {'bond_type': <BondType.SINGLE: 1>}
-    fn as_graph<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let nx = PyModule::import(py, "networkx")?;
-        let graph = nx.call_method0("Graph")?;
-
-        // Build edges list with bond_type attribute
-        let edges = pyo3::types::PyList::empty(py);
-        for bond in &self.bonds {
-            let edge_data = pyo3::types::PyDict::new(py);
-            edge_data.set_item("bond_type", bond.bond_type.clone())?;
-            let edge_tuple = PyTuple::new(py, [
-                bond.atom1.into_pyobject(py)?.into_any(),
-                bond.atom2.into_pyobject(py)?.into_any(),
-                edge_data.into_any(),
-            ])?;
-            edges.append(edge_tuple)?;
-        }
-
-        graph.call_method1("add_edges_from", (edges,))?;
-        Ok(graph)
-    }
-
     /// add_bond(atom_index1, atom_index2, bond_type=BondType.ANY)
     ///
     /// Add a bond to the :class:`BondList`.
@@ -741,42 +700,25 @@ impl BondList {
     /// ----------
     /// atom_index1, atom_index2 : int
     ///     The indices of the atoms to create a bond for.
-    /// bond_type : BondType or int, optional
+    /// bond_type : BondType
     ///     The type of the bond. Default is :attr:`BondType.ANY`.
-    #[pyo3(signature = (atom_index1, atom_index2, bond_type=None))]
+    #[pyo3(signature = (atom_index1, atom_index2, bond_type=BondType::Any))]
     fn add_bond(
         &mut self,
         atom_index1: i64,
         atom_index2: i64,
-        bond_type: Option<&Bound<'_, PyAny>>,
+        bond_type: BondType,
     ) -> PyResult<()> {
         let idx1 = to_positive_index(atom_index1, self.atom_count)?;
         let idx2 = to_positive_index(atom_index2, self.atom_count)?;
 
-        // Extract bond type: accept BondType enum, int, or None (defaults to ANY)
-        let bt = match bond_type {
-            Some(bt_obj) => {
-                // Try to extract as BondType first
-                if let Ok(bt) = bt_obj.extract::<BondType>() {
-                    bt
-                } else if let Ok(bt_int) = bt_obj.extract::<u32>() {
-                    BondType::try_from(bt_int)?
-                } else {
-                    return Err(exceptions::PyTypeError::new_err(
-                        "bond_type must be BondType or int",
-                    ));
-                }
-            }
-            None => BondType::ANY,
-        };
-
-        let new_bond = Bond::new(idx1, idx2, bt);
+        let new_bond = Bond::new(idx1, idx2, bond_type);
 
         // Check if bond already exists
         for bond in &mut self.bonds {
             if bond.atom1 == new_bond.atom1 && bond.atom2 == new_bond.atom2 {
                 // Update bond type
-                bond.bond_type = bt;
+                bond.bond_type = bond_type;
                 return Ok(());
             }
         }
@@ -806,7 +748,8 @@ impl BondList {
             (idx2, idx1)
         };
 
-        self.bonds.retain(|bond| !(bond.atom1 == min_idx && bond.atom2 == max_idx));
+        self.bonds
+            .retain(|bond| !(bond.atom1 == min_idx && bond.atom2 == max_idx));
         // max_bonds_per_atom not recalculated (see Cython implementation comment)
         Ok(())
     }
@@ -822,7 +765,8 @@ impl BondList {
     ///     The index of the atom whose bonds should be removed.
     fn remove_bonds_to(&mut self, atom_index: i64) -> PyResult<()> {
         let index = to_positive_index(atom_index, self.atom_count)?;
-        self.bonds.retain(|bond| bond.atom1 != index && bond.atom2 != index);
+        self.bonds
+            .retain(|bond| bond.atom1 != index && bond.atom2 != index);
         Ok(())
     }
 
@@ -840,12 +784,10 @@ impl BondList {
     /// bond_list : BondList
     ///     The bonds in `bond_list` are removed from this instance.
     fn remove_bonds(&mut self, bond_list: &BondList) {
-        let bonds_to_remove: HashSet<(u32, u32)> = bond_list
-            .bonds
-            .iter()
-            .map(|b| (b.atom1, b.atom2))
-            .collect();
-        self.bonds.retain(|bond| !bonds_to_remove.contains(&(bond.atom1, bond.atom2)));
+        let bonds_to_remove: HashSet<(u32, u32)> =
+            bond_list.bonds.iter().map(|b| (b.atom1, b.atom2)).collect();
+        self.bonds
+            .retain(|bond| !bonds_to_remove.contains(&(bond.atom1, bond.atom2)));
     }
 
     /// merge(bond_list)
@@ -981,8 +923,8 @@ impl BondList {
         if self.atom_count != other.atom_count {
             return false;
         }
-        let self_set: HashSet<_> = self.bonds.iter().map(|b| b.as_tuple()).collect();
-        let other_set: HashSet<_> = other.bonds.iter().map(|b| b.as_tuple()).collect();
+        let self_set: HashSet<_> = self.bonds.iter().map(|b| b.as_array()).collect();
+        let other_set: HashSet<_> = other.bonds.iter().map(|b| b.as_array()).collect();
         self_set == other_set
     }
 
@@ -1011,15 +953,18 @@ impl BondList {
         let cls = struc.getattr("BondList")?;
         let from_state = cls.getattr("_from_state")?;
 
-        // Serialize bonds as flat vector of (atom1, atom2, type) tuples
-        let bonds_data: Vec<(u32, u32, u8)> = self.bonds.iter().map(|b| b.as_tuple()).collect();
+        // Serialize bonds as flat vector of [atom1, atom2, type] arrays
+        let bonds_data: Vec<[u32; 3]> = self.bonds.iter().map(|b| b.as_array()).collect();
 
         let args = PyTuple::new(
             py,
             [
                 self.atom_count.into_pyobject(py)?.into_any().unbind(),
                 bonds_data.into_pyobject(py)?.into_any().unbind(),
-                self.max_bonds_per_atom.into_pyobject(py)?.into_any().unbind(),
+                self.max_bonds_per_atom
+                    .into_pyobject(py)?
+                    .into_any()
+                    .unbind(),
             ],
         )?;
 
@@ -1030,16 +975,16 @@ impl BondList {
     #[pyo3(name = "_from_state")]
     fn from_state(
         atom_count: u32,
-        bonds_data: Vec<(u32, u32, u8)>,
+        bonds_data: Vec<[u32; 3]>,
         max_bonds_per_atom: u32,
     ) -> PyResult<Self> {
         let bonds: Vec<Bond> = bonds_data
             .into_iter()
-            .map(|(a1, a2, bt)| {
+            .map(|[a1, a2, bt]| {
                 Ok(Bond {
                     atom1: a1,
                     atom2: a2,
-                    bond_type: BondType::try_from(bt as u32)?,
+                    bond_type: BondType::try_from(bt)?,
                 })
             })
             .collect::<PyResult<Vec<Bond>>>()?;
@@ -1155,11 +1100,7 @@ impl BondList {
             let new_idx1 = inverse_index[bond.atom1 as usize];
             let new_idx2 = inverse_index[bond.atom2 as usize];
             if new_idx1 != -1 && new_idx2 != -1 {
-                new_bonds.push(Bond::new(
-                    new_idx1 as u32,
-                    new_idx2 as u32,
-                    bond.bond_type,
-                ));
+                new_bonds.push(Bond::new(new_idx1 as u32, new_idx2 as u32, bond.bond_type));
             }
         }
 
@@ -1195,4 +1136,3 @@ fn to_positive_index(index: i64, array_length: u32) -> PyResult<u32> {
         Ok(index as u32)
     }
 }
-
