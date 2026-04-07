@@ -3,10 +3,14 @@
 # information.
 
 import itertools
+import json
+from pathlib import Path
 import numpy as np
 import pytest
 import biotite.sequence as seq
 import biotite.sequence.align as align
+import biotite.sequence.io.fasta as fasta
+from tests.util import data_dir
 
 
 @pytest.mark.parametrize(
@@ -133,8 +137,6 @@ def test_large_sequence_mapping(length, excerpt_length, seed):
 
     diagonal = np.random.randint(excerpt_pos - BAND_WIDTH, excerpt_pos + BAND_WIDTH)
     band = (diagonal - BAND_WIDTH, diagonal + BAND_WIDTH)
-    print(band)
-    print(len(sequence), len(excerpt))
 
     matrix = align.SubstitutionMatrix.std_nucleotide_matrix()
     test_alignments = align.align_banded(excerpt, sequence, matrix, band=band)
@@ -243,3 +245,35 @@ def _create_random_pair(
     ]
 
     return original, mutant
+
+
+@pytest.mark.parametrize(
+    "legacy_path",
+    sorted(Path(data_dir("sequence"), "legacy_consistency").glob("align_banded_*.fasta")),
+    ids=lambda p: p.stem,
+)
+def test_consistency_with_legacy(sequences, legacy_path):
+    """
+    Verify that the current implementation of :func:`align_banded()` produces
+    the same results as the legacy *Cython* implementation.
+    """
+    parts = legacy_path.stem.split("_")
+    i, j = int(parts[-2]), int(parts[-1])
+    pair_key = f"{i}_{j}"
+
+    with open(legacy_path.parent / "params.json") as f:
+        params = json.load(f)["align_banded"][pair_key]
+    params["gap_penalty"] = tuple(params["gap_penalty"])
+    params["band"] = tuple(params["band"])
+
+    matrix = align.SubstitutionMatrix.std_protein_matrix()
+    test_alignment = align.align_banded(
+        sequences[i], sequences[j], matrix, max_number=1, **params
+    )[0]
+
+    ref_alignment = fasta.get_alignment(fasta.FastaFile.read(legacy_path))
+
+    # Direct Alignment comparison is not possible, because the reference
+    # alignment loaded from FASTA has no score and the offset from
+    # semi-global alignment is lost during FASTA round-tripping
+    assert test_alignment.get_gapped_sequences() == ref_alignment.get_gapped_sequences()

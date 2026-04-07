@@ -3,10 +3,14 @@
 # information.
 
 import itertools
+import json
+from pathlib import Path
 import numpy as np
 import pytest
 import biotite.sequence as seq
 import biotite.sequence.align as align
+import biotite.sequence.io.fasta as fasta
+from tests.util import data_dir
 
 
 @pytest.mark.parametrize(
@@ -204,3 +208,35 @@ def test_max_table_size(gap_penalty, direction, score_only, should_raise):
             alignment = result[0]
             # Expect that no gaps are introduced
             assert len(alignment) == len(seq1)
+
+
+@pytest.mark.parametrize(
+    "legacy_path",
+    sorted(Path(data_dir("sequence"), "legacy_consistency").glob("align_local_*.fasta")),
+    ids=lambda p: p.stem,
+)
+def test_consistency_with_legacy(sequences, legacy_path):
+    """
+    Verify that the current implementation of :func:`align_local_gapped()`
+    produces the same results as the legacy *Cython* implementation.
+    """
+    parts = legacy_path.stem.split("_")
+    i, j = int(parts[-2]), int(parts[-1])
+    pair_key = f"{i}_{j}"
+
+    with open(legacy_path.parent / "params.json") as f:
+        params = json.load(f)["align_local_gapped"][pair_key]
+    params["gap_penalty"] = tuple(params["gap_penalty"])
+    params["seed"] = tuple(params["seed"])
+
+    matrix = align.SubstitutionMatrix.std_protein_matrix()
+    test_alignment = align.align_local_gapped(
+        sequences[i], sequences[j], matrix, max_number=1, **params
+    )[0]
+
+    ref_alignment = fasta.get_alignment(fasta.FastaFile.read(legacy_path))
+
+    # Direct Alignment comparison is not possible, because the reference
+    # alignment loaded from FASTA has no score and the trace offset from
+    # local alignment is lost during FASTA round-tripping
+    assert test_alignment.get_gapped_sequences() == ref_alignment.get_gapped_sequences()

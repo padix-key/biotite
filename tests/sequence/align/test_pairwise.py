@@ -3,13 +3,16 @@
 # information.
 
 import itertools
+import json
+from pathlib import Path
 import numpy as np
 import pytest
 import biotite.application.muscle as muscle
 import biotite.sequence as seq
 import biotite.sequence.align as align
+import biotite.sequence.io.fasta as fasta
 from biotite.application import VersionError
-from tests.util import is_not_installed
+from tests.util import data_dir, is_not_installed
 
 
 def test_align_ungapped():
@@ -235,3 +238,34 @@ def test_scoring(sequences, gap_penalty, term, seq_indices):
     except AssertionError:
         print(alignment)
         raise
+
+
+@pytest.mark.parametrize(
+    "legacy_path",
+    sorted(Path(data_dir("sequence"), "legacy_consistency").glob("align_optimal_*.fasta")),
+    ids=lambda p: p.stem,
+)
+def test_consistency_with_legacy(sequences, legacy_path):
+    """
+    Verify that the current implementation of :func:`align_optimal()` produces
+    the same results as the legacy *Cython* implementation.
+    """
+    parts = legacy_path.stem.split("_")
+    i, j = int(parts[-2]), int(parts[-1])
+    pair_key = f"{i}_{j}"
+
+    with open(legacy_path.parent / "params.json") as f:
+        params = json.load(f)["align_optimal"][pair_key]
+    params["gap_penalty"] = tuple(params["gap_penalty"])
+
+    matrix = align.SubstitutionMatrix.std_protein_matrix()
+    test_alignment = align.align_optimal(
+        sequences[i], sequences[j], matrix, max_number=1, **params
+    )[0]
+
+    ref_alignment = fasta.get_alignment(fasta.FastaFile.read(legacy_path))
+
+    # The reference alignment loaded from FASTA has no score,
+    # so set the test score to None to allow direct comparison
+    test_alignment.score = None
+    assert test_alignment == ref_alignment
