@@ -182,6 +182,14 @@ TEST_PARAMETERS = [
         ),
     ),
     pytest.param(
+        "biotite.application_v2.mmseqs",
+        ["biotite.sequence"],
+        marks=pytest.mark.skipif(
+            is_not_installed("mmseqs") | is_not_installed("foldseek"),
+            reason="Software is not installed",
+        ),
+    ),
+    pytest.param(
         "biotite.application.dssp",
         ["biotite.structure"],
         marks=pytest.mark.skipif(
