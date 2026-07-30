@@ -99,6 +99,80 @@ def test_dihedral_backbone_consistency(multi_model):
 
 
 @pytest.mark.parametrize("multi_model", [False, True])
+def test_dihedral_backbone_chain_break(multi_model):
+    """
+    :func:`dihedral_backbone()` must not compute dihedral angles across a
+    chain break, i.e. two residues that are positionally adjacent in the
+    :class:`AtomArray` but not actually bonded.
+    This is simulated by taking two unrelated fragments of the same chain
+    and translating one of them far away, while keeping the residue IDs
+    perfectly continuous, to ensure the detection is based on the actual
+    bond distance and not on residue numbering.
+    """
+    pdbx_file = pdbx.BinaryCIFFile.read(data_dir("structure") / "pdb" / "1l2y.bcif")
+    atoms = pdbx.get_structure(pdbx_file, model=1)
+
+    fragment_1 = atoms[np.isin(atoms.res_id, [1, 2])].copy()
+    fragment_2 = atoms[np.isin(atoms.res_id, [15, 16])].copy()
+    # Renumber so residue IDs are contiguous with `fragment_1`, although
+    # the two fragments are not physically connected
+    fragment_2.res_id = fragment_2.res_id - 15 + 3
+    fragment_2.coord = fragment_2.coord + np.array([1000, 0, 0], dtype=np.float32)
+    combined = fragment_1 + fragment_2
+    if multi_model:
+        combined = struc.stack([combined] * 2)
+
+    phi, psi, omega = struc.dihedral_backbone(combined)
+
+    # The junction between residue index 1 (res_id 2) and residue index 2
+    # (res_id 3) is not an actual bond -> angles spanning it must be NaN
+    assert np.all(np.isnan(psi[..., 1]))
+    assert np.all(np.isnan(omega[..., 1]))
+    assert np.all(np.isnan(phi[..., 2]))
+    # All other angles within a fragment are unaffected and must remain
+    # finite
+    assert np.all(np.isfinite(phi[..., 1]))
+    assert np.all(np.isfinite(psi[..., 0]))
+    assert np.all(np.isfinite(omega[..., 0]))
+    assert np.all(np.isfinite(psi[..., 2]))
+    assert np.all(np.isfinite(omega[..., 2]))
+    assert np.all(np.isfinite(phi[..., 3]))
+
+
+@pytest.mark.parametrize("multi_model", [False, True])
+def test_nucleotide_dihedral_backbone_chain_break(multi_model):
+    """
+    Analogous to `test_dihedral_backbone_chain_break()`, but for
+    :func:`nucleotide_dihedral_backbone()`.
+    """
+    pdbx_file = pdbx.BinaryCIFFile.read(data_dir("structure") / "pdb" / "4p5j.bcif")
+    atoms = pdbx.get_structure(pdbx_file, model=1)
+    atoms = atoms[struc.filter_canonical_nucleotides(atoms)]
+
+    fragment_1 = atoms[np.isin(atoms.res_id, [1, 2])].copy()
+    fragment_2 = atoms[np.isin(atoms.res_id, [15, 16])].copy()
+    fragment_2.res_id = fragment_2.res_id - 15 + 3
+    fragment_2.coord = fragment_2.coord + np.array([1000, 0, 0], dtype=np.float32)
+    combined = fragment_1 + fragment_2
+    if multi_model:
+        combined = struc.stack([combined] * 2)
+
+    alpha, beta, gamma, delta, epsilon, zeta = struc.nucleotide_dihedral_backbone(
+        combined
+    )
+
+    assert np.all(np.isnan(epsilon[..., 1]))
+    assert np.all(np.isnan(zeta[..., 1]))
+    assert np.all(np.isnan(alpha[..., 2]))
+    assert np.all(np.isfinite(epsilon[..., 0]))
+    assert np.all(np.isfinite(zeta[..., 0]))
+    assert np.all(np.isfinite(alpha[..., 1]))
+    assert np.all(np.isfinite(epsilon[..., 2]))
+    assert np.all(np.isfinite(zeta[..., 2]))
+    assert np.all(np.isfinite(alpha[..., 3]))
+
+
+@pytest.mark.parametrize("multi_model", [False, True])
 def test_dihedral_side_chain_consistency(multi_model):
     """
     Check if the computed dihedral angles are equal to the reference computed with
