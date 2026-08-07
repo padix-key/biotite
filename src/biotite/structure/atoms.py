@@ -228,24 +228,31 @@ class _AtomArrayBase(Copyable, metaclass=abc.ABCMeta):
         new_coord = self._coord[..., index, :]
         new_length = new_coord.shape[-2]
         if isinstance(self, AtomArray):
-            # Initialize with length 0 to avoid unnecessary memory allocation
-            # for large arrays, as the individual annotation arrays ar
-            # overwritten later anyway
-            new_object = AtomArray(0)
+            new_object = AtomArray.__new__(AtomArray)
         elif isinstance(self, AtomArrayStack):
-            new_depth = new_coord.shape[-3]
-            new_object = AtomArrayStack(new_depth, 0)
+            new_object = AtomArrayStack.__new__(AtomArrayStack)
         else:
             raise TypeError(f"Unsupported type '{type(self).__name__}'")
-        new_object._coord = new_coord
-        if self._bonds is not None:
-            new_object._bonds = self._bonds[index]
-        if self._box is not None:
-            new_object._box = self._box
-        for annotation in self._annot:
-            new_object._annot[annotation] = self._annot[annotation].__getitem__(index)
-        # Update the array length, since has currently length '0'
-        new_object._array_length = new_length
+        # `__init__()` is deliberately not called:
+        # every attribute is taken from this object anyway, so the annotation
+        # arrays it would create are allocated only to be discarded again.
+        # `object.__setattr__()` is used, as the attributes are set directly
+        # instead of via the checks in `__setattr__()`.
+        # `_annot` must be set first, as `__setattr__()` requires it.
+        object.__setattr__(
+            new_object,
+            "_annot",
+            {
+                annotation: array.__getitem__(index)
+                for annotation, array in self._annot.items()
+            },
+        )
+        object.__setattr__(new_object, "_array_length", new_length)
+        object.__setattr__(new_object, "_coord", new_coord)
+        object.__setattr__(
+            new_object, "_bonds", None if self._bonds is None else self._bonds[index]
+        )
+        object.__setattr__(new_object, "_box", self._box)
         return new_object  # pyright: ignore[reportReturnType]
 
     def _set_element(self, index: int | NDArray1[Any, np.integer], atom: Atom) -> None:
