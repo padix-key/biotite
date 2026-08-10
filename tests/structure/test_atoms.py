@@ -79,6 +79,12 @@ def test_indexing_after_annotation_deletion(array, stack):
     """
     Indexing must not resurrect a deleted annotation category, as the
     resurrected array would not match the length of the indexed object.
+
+    Previously the indexed object was created via its constructor with length 0,
+    which already adds the default annotation categories, and only the categories
+    present in the original object were overwritten afterwards.
+    Hence a deleted default category reappeared in the indexed object as an
+    empty array.
     """
     array.del_annotation("chain_id")
     stack.del_annotation("chain_id")
