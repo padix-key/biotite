@@ -701,9 +701,12 @@ def dihedral_backbone(
     coord_for_omg[..., 0:-1, :, 3] = coord_ca[..., 1:,   :]
     # fmt: on
 
-    phi = dihedral(*(coord_for_phi[..., i] for i in range(4)))
-    psi = dihedral(*(coord_for_psi[..., i] for i in range(4)))
-    omg = dihedral(*(coord_for_omg[..., i] for i in range(4)))
+    # `np.asarray` strips the unreachable scalar (`np.floating`) branch of
+    # `dihedral`'s return type (see the note on the return statement below),
+    # so the in-place NaN masking further down type-checks.
+    phi = np.asarray(dihedral(*(coord_for_phi[..., i] for i in range(4))))
+    psi = np.asarray(dihedral(*(coord_for_psi[..., i] for i in range(4))))
+    omg = np.asarray(dihedral(*(coord_for_omg[..., i] for i in range(4))))
 
     # Two residues that are merely positionally adjacent in the atom array
     # (e.g. due to a missing loop or concatenated chains) are not
@@ -956,12 +959,16 @@ def nucleotide_dihedral_backbone(
     coord_for_zeta[..., 0:-1, :, 3] = coord_o5p[...,   1:, :]
     # fmt: on
 
-    alpha = dihedral(*(coord_for_alpha[..., i] for i in range(4)))
+    # `alpha`, `epsilon` and `zeta` are wrapped in `np.asarray` to strip the
+    # unreachable scalar (`np.floating`) branch of `dihedral`'s return type
+    # (see the note on the return statement below), so the in-place NaN
+    # masking further down type-checks.
+    alpha = np.asarray(dihedral(*(coord_for_alpha[..., i] for i in range(4))))
     beta = dihedral(*(coord_for_beta[..., i] for i in range(4)))
     gamma = dihedral(*(coord_for_gamma[..., i] for i in range(4)))
     delta = dihedral(*(coord_for_delta[..., i] for i in range(4)))
-    epsilon = dihedral(*(coord_for_epsilon[..., i] for i in range(4)))
-    zeta = dihedral(*(coord_for_zeta[..., i] for i in range(4)))
+    epsilon = np.asarray(dihedral(*(coord_for_epsilon[..., i] for i in range(4))))
+    zeta = np.asarray(dihedral(*(coord_for_zeta[..., i] for i in range(4))))
 
     # Two residues that are merely positionally adjacent in the atom array
     # (e.g. due to a missing loop or concatenated chains) are not
