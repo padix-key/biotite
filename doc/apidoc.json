@@ -265,7 +265,8 @@
             "connect_via_residue_names",
             "connect_via_distances",
             "find_connected",
-            "find_rotatable_bonds"
+            "find_rotatable_bonds",
+            "infer_bond_types"
         ],
         "Geometry" : [
             "displacement",
