@@ -9,6 +9,65 @@ import biotite.structure.info as info
 import biotite.structure.io.pdbx as pdbx
 from tests.util import data_dir
 
+# Elements supported by `infer_bond_types()`
+_ORGANIC_ELEMENTS = {
+    "H", "B", "C", "N", "O", "F", "SI", "P", "S", "CL", "SE", "BR", "I",
+}  # fmt: skip
+# Molecules with sulfur or selenium in each possible number of bond partners,
+# as the allowed valences of these elements are handled specially
+_SULFUR_COMPOUNDS = [
+    "IS8",  # thiocarbonyl (1 partner, valence 2)
+    "OPS",  # thiolate (1 partner, valence 1)
+    "CYS",  # thiol (2 partners, valence 2)
+    "MET",  # thioether (2 partners, valence 2)
+    "ZVH",  # thiophene (2 partners, valence 2)
+    "MSE",  # selenoether (2 partners, valence 2)
+    "NK2",  # sulfonium (3 partners, valence 3)
+    "DMS",  # sulfoxide (3 partners, valence 4)
+    "BLT",  # selenonium (3 partners, valence 3)
+    "L2L",  # sulfone (4 partners, valence 6)
+]
+
+
+def _sample_ccd_residues(size):
+    """
+    Randomly sample names of released components from the CCD.
+    """
+    chem_comp = info.get_ccd()["chem_comp"]
+    residue_names = chem_comp["id"].as_array()
+    release_status = chem_comp["pdbx_release_status"].as_array()
+    residue_names = residue_names[release_status == "REL"]
+    return np.random.default_rng(0).choice(residue_names, size=size).tolist()
+
+
+def _infer_aromaticity(atoms, bonds):
+    """
+    Set the type of each bond that *RDKit* perceives as aromatic to
+    :attr:`BondType.AROMATIC`.
+
+    Applied to two bond lists of the same molecule, this removes the ambiguity, which
+    of the equivalent resonance structures was chosen for kekulized aromatic systems.
+    """
+    # Import locally in case the `rdkit`package is absent
+    from rdkit import Chem
+    import biotite.interface.rdkit as rdkit_interface
+
+    molecule = atoms.copy()
+    molecule.bonds = bonds
+    mol = rdkit_interface.to_mol(molecule)
+    # Perceive only rings and aromaticity, as the valence checks of a full sanitization
+    # may fail for the resonance structure at hand
+    Chem.SanitizeMol(
+        mol, Chem.SANITIZE_SYMMRINGS | Chem.SANITIZE_SETAROMATICITY, catchErrors=True
+    )
+
+    bond_array = bonds.as_array()
+    aromatic_bond_array = bond_array.copy()
+    for k, (atom_i, atom_j, _) in enumerate(bond_array):
+        if mol.GetBondBetweenAtoms(int(atom_i), int(atom_j)).GetIsAromatic():
+            aromatic_bond_array[k, 2] = struc.BondType.AROMATIC
+    return struc.BondList(atoms.array_length(), aromatic_bond_array)
+
 
 @pytest.mark.parametrize("seed", range(20))
 @pytest.mark.parametrize("as_mask", [False, True])
@@ -112,14 +171,90 @@ def test_canonical_bonds_with_altloc_occupancy(cif_path, expected_bond_indices):
     assert atom2 in atom_array.bonds.get_bonds(atom1)[0]
 
 
+@pytest.mark.filterwarnings("ignore:.*coordinates are missing.*")
+@pytest.mark.parametrize("res_name", _sample_ccd_residues(100))
+def test_connect_via_distances_small_molecules(res_name):
+    """
+    Expect that the connectivity of small molecules from the CCD is recovered by
+    :func:`connect_via_distances()` from their idealized coordinates.
+    """
+    ref_atoms = info.residue(res_name, allow_missing_coord=True)
+    if np.any(ref_atoms.element == "X"):
+        pytest.skip("Molecule contains an atom with unknown element")
+    if np.isnan(ref_atoms.coord).any():
+        pytest.skip("Molecule has missing coordinates")
+    ref_bonds = ref_atoms.bonds.copy()
+    # Only the connectivity can be detected from distances, not the bond order
+    ref_bonds.remove_bond_order()
+
+    test_bonds = struc.connect_via_distances(ref_atoms)
+
+    assert test_bonds.as_set() == ref_bonds.as_set()
+
+
+@pytest.mark.filterwarnings("ignore:.*coordinates are missing.*")
+@pytest.mark.filterwarnings("error::biotite.structure.InconsistentBondTypeWarning")
+@pytest.mark.parametrize(
+    "res_name",
+    # Supplement the random sample with molecules containing sulfur or selenium
+    sorted(set(_sample_ccd_residues(100)) | set(_SULFUR_COMPOUNDS)),
+)
+def test_infer_bond_types_small_molecules(res_name):
+    """
+    Expect that the bond types of small molecules from the CCD are recovered by
+    :func:`infer_bond_types()` from their connectivity.
+
+    As the algorithm may choose a different, but equivalent resonance structure than
+    the reference, the bonds of aromatic systems are set to :attr:`BondType.AROMATIC`
+    on both sides, before they are compared.
+    """
+    pytest.importorskip("rdkit")
+
+    ref_atoms = info.residue(res_name, allow_missing_coord=True)
+    if not set(ref_atoms.element) <= _ORGANIC_ELEMENTS:
+        pytest.skip("Molecule contains unsupported elements")
+    # The reference uses aromatic bond types
+    # -> kekulize it, to give it the same treatment as the inferred bonds,
+    # as the CCD and rdkit may disagree on aromaticity definition
+    ref_bonds = ref_atoms.bonds.copy()
+    ref_bonds.remove_aromaticity()
+    # Bonds that cannot be kekulized are converted to `BondType.ANY`
+    if (ref_bonds.as_array()[:, 2] == struc.BondType.ANY).any():
+        pytest.skip("Reference molecule has undefined bond types")
+    atoms = ref_atoms.copy()
+    connectivity = ref_atoms.bonds.copy()
+    connectivity.remove_bond_order()
+    atoms.bonds = connectivity
+
+    # Bound the number of iterations to fail instead of stalling,
+    # if no assignment is found
+    test_bonds, _ = struc.infer_bond_types(
+        atoms, total_charge=int(ref_atoms.charge.sum()), max_iterations=1_000_000
+    )
+
+    test_bonds = _infer_aromaticity(ref_atoms, test_bonds)
+    ref_bonds = _infer_aromaticity(ref_atoms, ref_bonds)
+    # Equivalent terminal atoms, e.g. the oxygen atoms of a carboxylate group, can be
+    # assigned to different bond orders, which is a valid alternative resonance
+    # structure
+    differing_bonds = ref_bonds.as_array()[
+        test_bonds.as_array()[:, 2] != ref_bonds.as_array()[:, 2]
+    ][:, :2]
+    n_partners = np.count_nonzero(ref_atoms.bonds.get_all_bonds()[0] != -1, axis=1)
+    if len(differing_bonds) > 0 and np.all(
+        np.any(n_partners[differing_bonds] == 1, axis=1)
+    ):
+        pytest.skip("Bond orders of equivalent terminal atoms are ambiguous")
+
+    assert test_bonds.as_set() == ref_bonds.as_set()
+
+
 @pytest.mark.parametrize("periodic", [False, True])
 def test_method_consistency(periodic):
     """
     Check if :func:`connect_via_distances()` and
     :func:`connect_via_residue_names()` give the same bond list
     """
-    THRESHOLD_PERCENTAGE = 0.99
-
     # Structure with peptide, nucleotide, small molecules and water
     pdbx_file = pdbx.BinaryCIFFile.read(data_dir("structure") / "pdb" / "5ugo.bcif")
     atoms = pdbx.get_structure(pdbx_file, model=1)
@@ -133,9 +268,4 @@ def test_method_consistency(periodic):
 
     bonds_from_distances = struc.connect_via_distances(atoms, periodic=periodic)
 
-    # The distance based method may not detect all bonds
-    assert bonds_from_distances.as_set().issubset(bonds_from_names.as_set())
-    assert (
-        len(bonds_from_distances.as_array())
-        >= len(bonds_from_names.as_array()) * THRESHOLD_PERCENTAGE
-    )
+    assert bonds_from_distances.as_set() == bonds_from_names.as_set()
