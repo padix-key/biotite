@@ -504,12 +504,16 @@ pub fn infer_bond_types<'py>(
     ));
 
     let mut iteration: u64 = 0;
+    let mut n_visited_states: usize = 0;
     let mut converged = false;
     let mut best_orders: Vec<u8> = base_orders.clone();
     let mut best_charges: Vec<i32> = vec![0; n_atoms];
     let mut best_order_sum: u64 = 0;
 
     'search: while let Some(state) = heap.pop() {
+        n_visited_states += 1;
+        check_signals_periodically(py, n_visited_states)?;
+
         // Enqueue all successor states,
         // i.e. states where a single atom has the next lower allowed valence
         for i in 0..n_atoms {
@@ -530,7 +534,6 @@ pub fn infer_bond_types<'py>(
         // -> skip the expensive assignment, as soon as a fallback is available
         if state.net_charge != total_charge && best_order_sum > 0 {
             iteration += 1;
-            check_signals_periodically(py, iteration as usize)?;
             if iteration >= max_iterations {
                 break 'search;
             }
@@ -541,20 +544,43 @@ pub fn infer_bond_types<'py>(
         let charges: Vec<i32> = (0..n_atoms)
             .map(|i| options[i][state.option_indices[i] as usize].charge)
             .collect();
-        let initial_u: Vec<i32> = (0..n_atoms)
+        let initial_unsaturation: Vec<i32> = (0..n_atoms)
             .map(|i| options[i][state.option_indices[i] as usize].unsaturation(degrees[i]) as i32)
             .collect();
 
-        let unsaturated: Vec<usize> = (0..n_atoms).filter(|&i| initial_u[i] > 0).collect();
+        let unsaturated: Vec<usize> = (0..n_atoms)
+            .filter(|&i| initial_unsaturation[i] > 0)
+            .collect();
 
         // Quick rejection: If any unsaturated atom has only saturated neighbors,
         // no assignment in this valence state can consume all unsaturations
-        if unsaturated
-            .iter()
-            .any(|&i| adjacency[i].iter().all(|&(j, _)| initial_u[j] <= 0))
-        {
+        if unsaturated.iter().any(|&i| {
+            adjacency[i]
+                .iter()
+                .all(|&(j, _)| initial_unsaturation[j] == 0)
+        }) {
             iteration += 1;
-            check_signals_periodically(py, iteration as usize)?;
+            if iteration >= max_iterations {
+                break 'search;
+            }
+            continue;
+        }
+
+        // Without unsaturated atoms all bonds simply remain single bonds
+        if unsaturated.is_empty() {
+            if state.net_charge == total_charge {
+                best_orders = base_orders.clone();
+                best_charges = charges;
+                converged = true;
+                break 'search;
+            }
+            // As all bonds are single bonds, the sum of bond orders is minimal
+            // -> this assignment is only kept, if no other one was found yet
+            if best_order_sum == 0 {
+                best_order_sum = base_orders.len() as u64;
+                best_charges = charges;
+            }
+            iteration += 1;
             if iteration >= max_iterations {
                 break 'search;
             }
@@ -563,19 +589,13 @@ pub fn infer_bond_types<'py>(
 
         // The result of the greedy assignment depends on the starting atom
         // -> retry with different starting atoms until the conditions are met
-        let starts: Vec<Option<usize>> = if unsaturated.is_empty() {
-            vec![None]
-        } else {
-            unsaturated.iter().map(|&i| Some(i)).collect()
-        };
-        for start in starts {
+        for &start in &unsaturated {
             iteration += 1;
-            check_signals_periodically(py, iteration as usize)?;
-            let (orders, remaining_u) =
-                assign_bond_orders(&adjacency, &base_orders, &initial_u, start);
+            let (orders, remaining_unsaturation) =
+                assign_bond_orders(&adjacency, &base_orders, &initial_unsaturation, start);
             // If no unsaturation is left, each atom reached the valence of its
             // state, so the formal charges of the state apply
-            if remaining_u == 0 && state.net_charge == total_charge {
+            if remaining_unsaturation == 0 && state.net_charge == total_charge {
                 best_orders = orders;
                 best_charges = charges;
                 converged = true;
@@ -677,40 +697,40 @@ fn allowed_valences(element: &str, degree: u32) -> Option<Vec<Valence>> {
 /// In each step the bond order between the unsaturated atom with the fewest pairable
 /// partners and its pairable partner with the fewest pairable partners is increased,
 /// until no two adjacent unsaturated atoms are left.
-/// `start` optionally forces the atom initiating the first pairing.
+/// `start` forces the atom initiating the first pairing.
 /// Returns the assigned bond orders and the total remaining unsaturation.
 fn assign_bond_orders(
     adjacency: &[Vec<(usize, usize)>],
     base_orders: &[u8],
-    initial_u: &[i32],
-    start: Option<usize>,
+    initial_unsaturation: &[i32],
+    start: usize,
 ) -> (Vec<u8>, i32) {
     let mut orders = base_orders.to_vec();
-    let mut u = initial_u.to_vec();
-    let n_atoms = u.len();
-    let mut forced_start = start;
+    let mut unsaturation = initial_unsaturation.to_vec();
+    let n_atoms = unsaturation.len();
 
+    let mut start = Some(start);
     loop {
         // Number of partners each unsaturated atom can still pair with
         let mut n_partners = vec![0u32; n_atoms];
         for i in 0..n_atoms {
-            if u[i] <= 0 {
+            if unsaturation[i] == 0 {
                 continue;
             }
             n_partners[i] = adjacency[i]
                 .iter()
-                .filter(|&&(j, e)| u[j] > 0 && orders[e] < MAX_INFERRED_BOND_ORDER)
+                .filter(|&&(j, e)| unsaturation[j] > 0 && orders[e] < MAX_INFERRED_BOND_ORDER)
                 .count() as u32;
         }
 
-        let current = match forced_start
-            .take()
-            .filter(|&s| u[s] > 0 && n_partners[s] > 0)
-        {
-            Some(s) => s,
+        let current = match start.take() {
+            // In the first iteration the current index is set by the given start
+            Some(first) => first,
+            // In all subsequent iterations the atom with the fewest pairable
+            // partners is chosen, as it has the fewest ways to form a multiple bond
             None => {
                 match (0..n_atoms)
-                    .filter(|&i| u[i] > 0 && n_partners[i] > 0)
+                    .filter(|&i| unsaturation[i] > 0 && n_partners[i] > 0)
                     .min_by_key(|&i| n_partners[i])
                 {
                     Some(i) => i,
@@ -721,16 +741,19 @@ fn assign_bond_orders(
         };
         let &(partner, edge) = adjacency[current]
             .iter()
-            .filter(|&&(j, e)| u[j] > 0 && orders[e] < MAX_INFERRED_BOND_ORDER)
+            .filter(|&&(j, e)| unsaturation[j] > 0 && orders[e] < MAX_INFERRED_BOND_ORDER)
             .min_by_key(|&&(j, _)| n_partners[j])
             // Guaranteed by `n_partners[current] > 0`
             .unwrap();
         orders[edge] += 1;
-        u[current] -= 1;
-        u[partner] -= 1;
+        unsaturation[current] -= 1;
+        unsaturation[partner] -= 1;
     }
 
-    (orders, u.iter().filter(|&&du| du > 0).sum())
+    (
+        orders,
+        unsaturation.iter().filter(|&&value| value > 0).sum(),
+    )
 }
 
 /// Get indices to all atoms that are directly or indirectly connected
