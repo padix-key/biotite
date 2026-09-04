@@ -27,6 +27,16 @@ _SULFUR_COMPOUNDS = [
     "BLT",  # selenonium (3 partners, valence 3)
     "L2L",  # sulfone (4 partners, valence 6)
 ]
+# Molecules that require valence states with a formal charge
+_CHARGED_COMPOUNDS = [
+    "CMO",  # carbon monoxide
+    "MNC",  # isocyanide
+    "AE9",  # azide
+    "JYE",  # tetrazole
+    "DL6",  # nitro group
+    "7RD",  # charged nitrogen
+    "A9J",  # hexafluorophosphate
+]
 
 
 def _sample_ccd_residues(size):
@@ -194,12 +204,17 @@ def test_connect_via_distances_small_molecules(res_name):
 
 @pytest.mark.filterwarnings("ignore:.*coordinates are missing.*")
 @pytest.mark.filterwarnings("error::biotite.structure.InconsistentBondTypeWarning")
+@pytest.mark.parametrize("use_charge", [False, True])
 @pytest.mark.parametrize(
     "res_name",
-    # Supplement the random sample with molecules containing sulfur or selenium
-    sorted(set(_sample_ccd_residues(100)) | set(_SULFUR_COMPOUNDS)),
+    # Supplement the random sample with molecules that need special valence states
+    sorted(
+        set(_sample_ccd_residues(100))
+        | set(_SULFUR_COMPOUNDS)
+        | set(_CHARGED_COMPOUNDS)
+    ),
 )
-def test_infer_bond_types_small_molecules(res_name):
+def test_infer_bond_types_small_molecules(res_name, use_charge):
     """
     Expect that the bond types of small molecules from the CCD are recovered by
     :func:`infer_bond_types()` from their connectivity.
@@ -207,6 +222,9 @@ def test_infer_bond_types_small_molecules(res_name):
     As the algorithm may choose a different, but equivalent resonance structure than
     the reference, the bonds of aromatic systems are set to :attr:`BondType.AROMATIC`
     on both sides, before they are compared.
+
+    The known formal charges merely constrain the search, so the same bond types are
+    expected, regardless of whether they are given.
     """
     pytest.importorskip("rdkit")
 
@@ -225,6 +243,8 @@ def test_infer_bond_types_small_molecules(res_name):
     connectivity = ref_atoms.bonds.copy()
     connectivity.remove_bond_order()
     atoms.bonds = connectivity
+    if not use_charge:
+        atoms.del_annotation("charge")
 
     # Bound the number of iterations to fail instead of stalling,
     # if no assignment is found

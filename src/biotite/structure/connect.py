@@ -436,6 +436,8 @@ def infer_bond_types(
         The ``bonds`` attribute is required as source of the connectivity.
         Note that hydrogen atoms must be present, as otherwise the unsaturation of
         their bonded heavy atoms cannot be determined correctly.
+        If the ``charge`` annotation is present, the formal charge of each atom is
+        constrained to the given value, which narrows the search considerably.
     total_charge : int, optional
         The total formal charge of the structure, used as constraint during the
         assignment.
@@ -453,7 +455,8 @@ def infer_bond_types(
         double bonds, i.e. one kekulized resonance structure.
     charges : ndarray, shape=(n,), dtype=int
         The formal charge of each atom, as implied by the assigned bond types.
-        Atoms with an unsupported element are assigned a formal charge of ``0``.
+        If the ``charge`` annotation is present in `atoms`, it is returned unchanged.
+        Otherwise atoms with an unsupported element are assigned a charge of ``0``.
 
     Warns
     -----
@@ -481,26 +484,37 @@ def infer_bond_types(
     model and hence cannot be assigned properly:
 
     - Radicals and other odd-electron species, e.g. superoxide.
-    - Azides and diazo groups, as the valence of nitrogen is restricted to 3 and 4.
-    - Isocyanides and carbon monoxide, as the valence of carbon is restricted to 4.
-    - Hypervalent main group elements, e.g. in hexafluorophosphate.
     - Hypervalent sulfur or selenium with only two bond partners, e.g. in sulfur
       dioxide, as their allowed valences are restricted based on their number of bond
       partners.
-    - Boron clusters, e.g. carboranes.
     - Fused aromatic systems, where the multiple bonds may be placed in a way that
       satisfies all valences, but does not reproduce the aromatic system.
 
-    In all of these cases, except the last one, an
-    :class:`InconsistentBondTypeWarning` is raised.
+    In the first two cases an :class:`InconsistentBondTypeWarning` is raised.
+    The search may also fail for other exotic molecules, especially if the ``charge``
+    annotation is missing.
 
     Notes
     -----
     Supported elements are *H*, *B*, *C*, *N*, *O*, *F*, *Si*, *P*, *S*, *Cl*, *Se*,
     *Br* and *I*.
-    Bonds of atoms with other elements (e.g. metals) keep :attr:`BondType.SINGLE` and
-    their formal charge is assumed to be zero for the purpose of the total charge
-    condition.
+    Bonds of atoms with other elements (e.g. metals) keep :attr:`BondType.SINGLE`.
+    Their formal charge is taken from the ``charge`` annotation, if it is present, and
+    is assumed to be zero otherwise.
+
+    In deviation from the reference, which allows only the valences of the neutral
+    element, each atom may also adopt the valences of the anion and cation, i.e. it may
+    carry a formal charge of ``-1`` or ``1``.
+    As valence states with fewer formal charges are preferred, the neutral form is
+    still chosen, if it satisfies the constraints.
+    Consequently, if the ``charge`` annotation is present, the possible valence states
+    of each atom are narrowed down to those with the respective formal charge, which
+    reduces the number of combinations to try substantially.
+    If the given charge does not fit any valence state of the respective element, the
+    charge is still trusted, as it may represent a bonding situation that the valence
+    model cannot express, e.g. a dative bond to a four-bonded neutral boron atom.
+    In this rare case the atom is treated as saturated, i.e. all its bonds remain
+    single bonds, and its valence does not imply its formal charge anymore.
 
     References
     ----------
@@ -537,10 +551,16 @@ def infer_bond_types(
     if max_iterations is not None and max_iterations < 1:
         raise ValueError("At least one iteration is required")
 
+    # Known formal charges constrain the valence state of each atom
+    if "charge" in atoms.get_annotation_categories():
+        known_charges = atoms.charge.astype(np.int64, copy=False)
+    else:
+        known_charges = None
     bond_list, charges, converged = rust_infer_bond_types(
         [element.upper() for element in atoms.element],
         atoms.bonds,
         total_charge,
+        known_charges,
         max_iterations,
     )
     if not converged:

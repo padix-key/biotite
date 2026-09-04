@@ -4,11 +4,108 @@ use numpy::ndarray::ArrayView2;
 use numpy::{IntoPyArray, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions;
 use pyo3::prelude::*;
-use std::cmp::Ordering;
+use std::cmp::{Ordering, Reverse};
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 
 use crate::structure::bonds::{Bond, BondList, BondType};
 use crate::util::check_signals_periodically;
+
+/// Bond orders higher than a triple bond are not assigned.
+const MAX_INFERRED_BOND_ORDER: u8 = 3;
+
+/// A possible valence of an atom and the charge that would be associated to it.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+struct Valence {
+    /// The sum of bond orders of the atom.
+    valence: u32,
+    /// The formal charge the atom has, if this valence is reached.
+    charge: i32,
+}
+
+impl Valence {
+    const fn new(valence: u32, charge: i32) -> Self {
+        Valence { valence, charge }
+    }
+
+    /// The number of bond orders the atom can still gain, if it has the given number
+    /// of bond partners.
+    /// Zero, if the atom already has more bond partners than this valence allows.
+    fn unsaturation(&self, degree: u32) -> u32 {
+        self.valence.saturating_sub(degree)
+    }
+}
+
+/// A combination of chosen valence states, one for each atom.
+///
+/// As the states are taken from a max-heap, the greatest state is visited first.
+/// Hence the order prefers, in this precedence:
+///
+/// 1. the net formal charge closest to the requested total charge, as only states
+///    with the requested charge can be accepted at all,
+/// 2. the lowest sum of absolute formal charges, i.e. the fewest charged atoms,
+/// 3. the highest total valence, i.e. the most multiple bonds,
+/// 4. the selected options, merely to make the order deterministic.
+#[derive(PartialEq, Eq)]
+struct ValenceState {
+    charge_deviation: i32,
+    abs_charge: i32,
+    net_charge: i32,
+    valence_sum: u32,
+    /// For each atom the index of the selected valence option.
+    /// As an atom has only a handful of options, `u8` is sufficient and keeps the
+    /// state small, as it is cloned and hashed for each visited state.
+    option_indices: Vec<u8>,
+}
+
+impl ValenceState {
+    /// Create the valence state, in which the valence option at the given index is
+    /// selected for each atom.
+    fn from_selected_options(
+        option_indices: Vec<u8>,
+        options: &[Vec<Valence>],
+        total_charge: i32,
+    ) -> Self {
+        let mut valence_sum = 0;
+        let mut net_charge = 0;
+        let mut abs_charge = 0;
+        for (atom_i, &option_i) in option_indices.iter().enumerate() {
+            let valence = options[atom_i][option_i as usize];
+            valence_sum += valence.valence;
+            net_charge += valence.charge;
+            abs_charge += valence.charge.abs();
+        }
+        ValenceState {
+            charge_deviation: (net_charge - total_charge).abs(),
+            abs_charge,
+            net_charge,
+            valence_sum,
+            option_indices,
+        }
+    }
+}
+
+impl Ord for ValenceState {
+    fn cmp(&self, other: &Self) -> Ordering {
+        (
+            Reverse(self.charge_deviation),
+            Reverse(self.abs_charge),
+            self.valence_sum,
+            &self.option_indices,
+        )
+            .cmp(&(
+                Reverse(other.charge_deviation),
+                Reverse(other.abs_charge),
+                other.valence_sum,
+                &other.option_indices,
+            ))
+    }
+}
+
+impl PartialOrd for ValenceState {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
 
 /// Internal rust function for :func:`biotite.structure.connect.connect_via_residue_names`.
 ///
@@ -216,9 +313,6 @@ pub fn connect_inter_residue<'py>(
     Ok(bond_list)
 }
 
-/// Bond orders higher than a triple bond are not assigned.
-const MAX_BOND_ORDER: u8 = 3;
-
 /// Internal rust function for :func:`biotite.structure.connect.infer_bond_types`.
 ///
 /// Implements the bond order assignment algorithm from Kim & Kim
@@ -247,6 +341,9 @@ const MAX_BOND_ORDER: u8 = 3;
 ///     The bond types are ignored.
 /// total_charge
 ///     The total formal charge of the atoms, used as constraint.
+/// known_charges
+///     The formal charge of each atom, if it is already known.
+///     Constrains the valence state of each atom to the given charge.
 /// max_iterations
 ///     The maximum number of bond order assignments to try.
 ///     If `None`, the search is only stopped, when all valence states are tried.
@@ -261,16 +358,16 @@ const MAX_BOND_ORDER: u8 = 3;
 ///     Whether an assignment satisfying the unsaturation and charge conditions was
 ///     found.
 #[pyfunction]
-#[pyo3(signature = (elements, bonds, total_charge, max_iterations=None))]
-pub fn infer_bond_types(
-    py: Python<'_>,
+#[pyo3(signature = (elements, bonds, total_charge, known_charges=None, max_iterations=None))]
+pub fn infer_bond_types<'py>(
+    py: Python<'py>,
     elements: Vec<String>,
     bonds: &BondList,
     total_charge: i32,
+    known_charges: Option<PyReadonlyArray1<'py, i64>>,
     max_iterations: Option<u64>,
 ) -> PyResult<(BondList, Py<PyAny>, bool)> {
-    // No limit on the number of iterations means an exhaustive search,
-    // which is already bounded by the finite number of valence states
+    // No limit on the number of iterations means an exhaustive search
     let max_iterations = max_iterations.unwrap_or(u64::MAX);
     let n_atoms = elements.len();
     if bonds.get_atom_count() != n_atoms {
@@ -281,100 +378,171 @@ pub fn infer_bond_types(
         )));
     }
 
-    let edges: Vec<(usize, usize)> = bonds
+    let connected: Vec<(usize, usize)> = bonds
         .get_bonds_ref()
         .iter()
         .map(|bond| (bond.atom1, bond.atom2))
         .collect();
     // Adjacent atoms of each atom, given as `(partner_atom, edge_index)`
     let mut adjacency: Vec<Vec<(usize, usize)>> = vec![Vec::new(); n_atoms];
-    for (edge_i, &(atom1, atom2)) in edges.iter().enumerate() {
+    for (edge_i, &(atom1, atom2)) in connected.iter().enumerate() {
         adjacency[atom1].push((atom2, edge_i));
         adjacency[atom2].push((atom1, edge_i));
     }
     let degrees: Vec<u32> = adjacency.iter().map(|adj| adj.len() as u32).collect();
 
     // Every bond starts as a single bond
-    let base_orders: Vec<u8> = vec![1; edges.len()];
+    let base_orders: Vec<u8> = vec![1; connected.len()];
 
-    // Allowed valences of each atom, sorted in decreasing order
+    // Allowed valence states of each atom as `(valence, formal charge)`
     // Atoms with unknown elements, no bonds at all or more bonds than any allowed
-    // valence are treated as saturated
-    let options: Vec<Vec<u32>> = (0..n_atoms)
+    // valence are treated as saturated and uncharged
+    let mut options: Vec<Vec<Valence>> = (0..n_atoms)
         .map(|i| {
             if degrees[i] == 0 {
-                return vec![degrees[i]];
+                return vec![Valence::new(degrees[i], 0)];
             }
             match allowed_valences(&elements[i], degrees[i]) {
                 Some(allowed) => {
-                    let valid: Vec<u32> = allowed
-                        .iter()
-                        .copied()
-                        .filter(|&valence| valence >= degrees[i])
+                    let valid: Vec<Valence> = allowed
+                        .into_iter()
+                        .filter(|option| option.valence >= degrees[i])
                         .collect();
                     if valid.is_empty() {
-                        vec![degrees[i]]
+                        vec![Valence::new(degrees[i], 0)]
                     } else {
                         valid
                     }
                 }
-                None => vec![degrees[i]],
+                None => vec![Valence::new(degrees[i], 0)],
             }
         })
         .collect();
-    // Only atoms with more than one allowed valence span the valence state space
-    let multivalent: Vec<usize> = (0..n_atoms).filter(|&i| options[i].len() > 1).collect();
 
-    let make_state = |option_indices: Vec<u8>| -> ValenceState {
-        let mut valence_sum = 0;
-        let mut charge_sum = 0;
-        for (pos, &atom) in multivalent.iter().enumerate() {
-            let valence = options[atom][option_indices[pos] as usize];
-            valence_sum += valence;
-            // The formal charge the atom would have if its valence is fully satisfied,
-            // used to prefer states with fewer formal charges
-            charge_sum += formal_charge(&elements[atom], 0, valence, 0).abs();
+    // If the formal charges are already known, only the valence states with the
+    // respective charge are allowed, which constrains the search substantially
+    if let Some(known_charges) = known_charges {
+        let known_charges = known_charges.as_array();
+        if known_charges.len() != n_atoms {
+            return Err(exceptions::PyValueError::new_err(format!(
+                "{} charges given for {} atoms",
+                known_charges.len(),
+                n_atoms
+            )));
         }
-        ValenceState {
-            valence_sum,
-            neg_charge_sum: -charge_sum,
-            option_indices,
+        for i in 0..n_atoms {
+            let charge = known_charges[i] as i32;
+            let retained: Vec<Valence> = options[i]
+                .iter()
+                .copied()
+                .filter(|option| option.charge == charge)
+                .collect();
+            options[i] = if retained.is_empty() {
+                // The valence model cannot express the given charge for this element
+                // -> treat the atom as saturated, but still trust the given charge,
+                // as it may stem from a bonding situation that is not covered
+                vec![Valence::new(degrees[i], charge)]
+            } else {
+                retained
+            };
         }
-    };
+    }
+
+    // Iteratively remove valence options whose unsaturation cannot be absorbed by the
+    // bond partners, as this may reduce the state space substantially
+    loop {
+        let mut changed = false;
+        for i in 0..n_atoms {
+            if options[i].len() < 2 {
+                continue;
+            }
+            // The maximum unsaturation the bond partners can absorb in total
+            let capacity: u32 = adjacency[i]
+                .iter()
+                .map(|&(j, _)| {
+                    options[j]
+                        .iter()
+                        .map(|option| option.unsaturation(degrees[j]))
+                        .max()
+                        .unwrap_or(0)
+                        // A bond can be raised to a triple bond at most
+                        .min(MAX_INFERRED_BOND_ORDER as u32 - 1)
+                })
+                .sum();
+            let retained: Vec<Valence> = options[i]
+                .iter()
+                .copied()
+                .filter(|option| option.unsaturation(degrees[i]) <= capacity)
+                .collect();
+            if retained.len() < options[i].len() {
+                // If no option is feasible, keep the least valence
+                // The atom is not turned into a saturated one here, as this would
+                // silently hide that the molecule cannot be correctly assigned
+                options[i] = if retained.is_empty() {
+                    vec![*options[i].iter().min().unwrap()]
+                } else {
+                    retained
+                };
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
 
     // Enumerate the valence states lazily in decreasing order of total valence
     // to avoid materializing the potentially exponential state space
     let mut heap: BinaryHeap<ValenceState> = BinaryHeap::new();
     let mut visited: HashSet<Vec<u8>> = HashSet::new();
-    let initial_indices = vec![0u8; multivalent.len()];
+    let initial_indices = vec![0u8; n_atoms];
     visited.insert(initial_indices.clone());
-    heap.push(make_state(initial_indices));
+    heap.push(ValenceState::from_selected_options(
+        initial_indices,
+        &options,
+        total_charge,
+    ));
 
     let mut iteration: u64 = 0;
     let mut converged = false;
     let mut best_orders: Vec<u8> = base_orders.clone();
-    let mut best_total: u64 = 0;
+    let mut best_charges: Vec<i32> = vec![0; n_atoms];
+    let mut best_order_sum: u64 = 0;
 
     'search: while let Some(state) = heap.pop() {
         // Enqueue all successor states,
         // i.e. states where a single atom has the next lower allowed valence
-        for pos in 0..multivalent.len() {
-            if (state.option_indices[pos] as usize) < options[multivalent[pos]].len() - 1 {
+        for i in 0..n_atoms {
+            if (state.option_indices[i] as usize) < options[i].len() - 1 {
                 let mut successor = state.option_indices.clone();
-                successor[pos] += 1;
+                successor[i] += 1;
                 if visited.insert(successor.clone()) {
-                    heap.push(make_state(successor));
+                    heap.push(ValenceState::from_selected_options(
+                        successor,
+                        &options,
+                        total_charge,
+                    ));
                 }
             }
         }
 
-        // Determine the unsaturation of each atom in this valence state
-        let mut option_index_of_atom = vec![0usize; n_atoms];
-        for (pos, &atom) in multivalent.iter().enumerate() {
-            option_index_of_atom[atom] = state.option_indices[pos] as usize;
+        // Only valence states with the requested total charge can be accepted
+        // -> skip the expensive assignment, as soon as a fallback is available
+        if state.net_charge != total_charge && best_order_sum > 0 {
+            iteration += 1;
+            check_signals_periodically(py, iteration as usize)?;
+            if iteration >= max_iterations {
+                break 'search;
+            }
+            continue;
         }
+
+        // Determine the valence state and unsaturation of each atom
+        let charges: Vec<i32> = (0..n_atoms)
+            .map(|i| options[i][state.option_indices[i] as usize].charge)
+            .collect();
         let initial_u: Vec<i32> = (0..n_atoms)
-            .map(|i| options[i][option_index_of_atom[i]] as i32 - degrees[i] as i32)
+            .map(|i| options[i][state.option_indices[i] as usize].unsaturation(degrees[i]) as i32)
             .collect();
 
         let unsaturated: Vec<usize> = (0..n_atoms).filter(|&i| initial_u[i] > 0).collect();
@@ -405,21 +573,19 @@ pub fn infer_bond_types(
             check_signals_periodically(py, iteration as usize)?;
             let (orders, remaining_u) =
                 assign_bond_orders(&adjacency, &base_orders, &initial_u, start);
-            let charge_sum: i32 = (0..n_atoms)
-                .map(|i| {
-                    let bo_sum: u32 = adjacency[i].iter().map(|&(_, e)| orders[e] as u32).sum();
-                    formal_charge(&elements[i], degrees[i], bo_sum, total_charge)
-                })
-                .sum();
-            if remaining_u == 0 && charge_sum == total_charge {
+            // If no unsaturation is left, each atom reached the valence of its
+            // state, so the formal charges of the state apply
+            if remaining_u == 0 && state.net_charge == total_charge {
                 best_orders = orders;
+                best_charges = charges;
                 converged = true;
                 break 'search;
             }
             let total: u64 = orders.iter().map(|&order| order as u64).sum();
-            if total > best_total {
-                best_total = total;
+            if total > best_order_sum {
+                best_order_sum = total;
                 best_orders = orders;
+                best_charges = charges.clone();
             }
             if iteration >= max_iterations {
                 break 'search;
@@ -428,11 +594,12 @@ pub fn infer_bond_types(
     }
 
     let mut bond_list = BondList::empty(n_atoms);
-    for (edge_i, &(atom1, atom2)) in edges.iter().enumerate() {
-        let bond_type = match best_orders[edge_i] {
+    for (i, &(atom1, atom2)) in connected.iter().enumerate() {
+        let bond_type = match best_orders[i] {
             1 => BondType::Single,
             2 => BondType::Double,
-            _ => BondType::Triple,
+            3 => BondType::Triple,
+            _ => unreachable!("bond orders are capped at `MAX_BOND_ORDER`"),
         };
         unsafe {
             // The input bond list guarantees `atom1 < atom2` and unique bonds
@@ -444,15 +611,7 @@ pub fn infer_bond_types(
         }
     }
 
-    let charges: Vec<i64> = (0..n_atoms)
-        .map(|i| {
-            let bo_sum: u32 = adjacency[i]
-                .iter()
-                .map(|&(_, e)| best_orders[e] as u32)
-                .sum();
-            formal_charge(&elements[i], degrees[i], bo_sum, total_charge) as i64
-        })
-        .collect();
+    let charges: Vec<i64> = best_charges.iter().map(|&charge| charge as i64).collect();
 
     Ok((
         bond_list,
@@ -464,96 +623,52 @@ pub fn infer_bond_types(
     ))
 }
 
-/// A combination of chosen valences for all multivalent atoms.
-///
-/// Ordered such that the maximum element has the lowest sum of absolute formal
-/// charges and among ties the highest total valence.
-#[derive(PartialEq, Eq)]
-struct ValenceState {
-    valence_sum: u32,
-    neg_charge_sum: i32,
-    option_indices: Vec<u8>,
-}
-
-impl Ord for ValenceState {
-    fn cmp(&self, other: &Self) -> Ordering {
-        (self.neg_charge_sum, self.valence_sum, &self.option_indices).cmp(&(
-            other.neg_charge_sum,
-            other.valence_sum,
-            &other.option_indices,
-        ))
-    }
-}
-
-impl PartialOrd for ValenceState {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-/// Allowed valences of the supported elements
-/// (Table 1 in Kim & Kim, 2015, extended by further organic elements),
-/// sorted in decreasing order.
+/// Allowed valence states of the supported elements as `(valence, formal charge)`
+/// (Table 1 in Kim & Kim, 2015, extended by further organic elements).
 /// `None` for unsupported elements.
+///
+/// In addition to the neutral valence, the valences of the isoelectronic anion and
+/// cation are allowed, which is required to represent e.g. azides or isocyanides.
+/// The neutral state comes first, as it is the starting point of the search.
 ///
 /// In deviation from the reference, the allowed valences of sulfur and selenium are
 /// restricted based on the number of bond partners:
-/// The formal charge is zero for every sulfur valence, so valence states are ranked by
-/// their total valence alone.
+/// The formal charge is zero for every neutral sulfur valence, so valence states are
+/// ranked by their total valence, i.e. by their unsaturation, alone.
 /// Hence, without this restriction the hypervalent state would be chosen for e.g.
 /// aromatic sulfur, whose ring neighbors can accept the additional bond orders.
-/// Furthermore, this allows thiolates (valence 1) and converging sulfoxides/sulfones
-/// (formal charge 0 despite exceeding the octet).
-fn allowed_valences(element: &str, degree: u32) -> Option<&'static [u32]> {
+fn allowed_valences(element: &str, degree: u32) -> Option<Vec<Valence>> {
     match element {
-        "H" | "F" | "CL" | "BR" | "I" => Some(&[1]),
-        "B" => Some(&[3]),
-        "C" | "SI" => Some(&[4]),
-        "N" => Some(&[4, 3]),
-        "O" => Some(&[2, 1]),
-        "P" => Some(&[5, 4, 3]),
+        "H" | "F" | "CL" | "BR" | "I" => Some(vec![Valence::new(1, 0)]),
+        "B" => Some(vec![Valence::new(3, 0), Valence::new(4, -1)]),
+        "C" | "SI" => Some(vec![
+            Valence::new(4, 0),
+            Valence::new(3, -1),
+            Valence::new(3, 1),
+        ]),
+        "N" => Some(vec![
+            Valence::new(3, 0),
+            Valence::new(4, 1),
+            Valence::new(2, -1),
+        ]),
+        "O" => Some(vec![
+            Valence::new(2, 0),
+            Valence::new(1, -1),
+            Valence::new(3, 1),
+        ]),
+        "P" => Some(vec![
+            Valence::new(3, 0),
+            Valence::new(5, 0),
+            Valence::new(4, 1),
+            Valence::new(2, -1),
+        ]),
         "S" | "SE" => match degree {
-            1 => Some(&[2, 1]),
-            2 => Some(&[2]),
-            3 => Some(&[4, 3]),
-            _ => Some(&[6, 4]),
+            1 => Some(vec![Valence::new(2, 0), Valence::new(1, -1)]),
+            2 => Some(vec![Valence::new(2, 0), Valence::new(3, 1)]),
+            3 => Some(vec![Valence::new(4, 0), Valence::new(3, 1)]),
+            _ => Some(vec![Valence::new(6, 0), Valence::new(4, 0)]),
         },
         _ => None,
-    }
-}
-
-/// Number of valence electrons of the supported elements.
-fn valence_electrons(element: &str) -> Option<i32> {
-    match element {
-        "H" => Some(1),
-        "B" => Some(3),
-        "C" | "SI" => Some(4),
-        "N" | "P" => Some(5),
-        "O" | "S" | "SE" => Some(6),
-        "F" | "CL" | "BR" | "I" => Some(7),
-        _ => None,
-    }
-}
-
-/// The formal charge of an atom based on the sum of its bond orders
-/// (Table 2 in Kim & Kim, 2015).
-/// The formal charge of unsupported elements is set to 0.
-fn formal_charge(element: &str, degree: u32, bond_order_sum: u32, total_charge: i32) -> i32 {
-    match element {
-        "H" => 0,
-        "B" => 3 - bond_order_sum as i32,
-        // Carbon with three single bonds: +1/-1 depending on the total charge
-        "C" | "SI" if degree == 3 && bond_order_sum == 3 => total_charge.signum(),
-        // Carbene-like carbon with two single bonds
-        "C" | "SI" if degree == 2 && bond_order_sum == 2 => 0,
-        // Hypervalent phosphorus and sulfur have an expanded octet
-        "P" if bond_order_sum == 5 => 0,
-        "S" | "SE" if bond_order_sum == 4 || bond_order_sum == 6 => 0,
-        _ => match valence_electrons(element) {
-            // Octet rule
-            Some(n_electrons) => n_electrons - 8 + bond_order_sum as i32,
-            None => 0,
-        },
     }
 }
 
@@ -584,7 +699,7 @@ fn assign_bond_orders(
             }
             n_partners[i] = adjacency[i]
                 .iter()
-                .filter(|&&(j, e)| u[j] > 0 && orders[e] < MAX_BOND_ORDER)
+                .filter(|&&(j, e)| u[j] > 0 && orders[e] < MAX_INFERRED_BOND_ORDER)
                 .count() as u32;
         }
 
@@ -606,7 +721,7 @@ fn assign_bond_orders(
         };
         let &(partner, edge) = adjacency[current]
             .iter()
-            .filter(|&&(j, e)| u[j] > 0 && orders[e] < MAX_BOND_ORDER)
+            .filter(|&&(j, e)| u[j] > 0 && orders[e] < MAX_INFERRED_BOND_ORDER)
             .min_by_key(|&&(j, _)| n_partners[j])
             // Guaranteed by `n_partners[current] > 0`
             .unwrap();
