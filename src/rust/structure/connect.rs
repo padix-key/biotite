@@ -5,7 +5,7 @@ use numpy::{IntoPyArray, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions;
 use pyo3::prelude::*;
 use std::cmp::{Ordering, Reverse};
-use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
+use std::collections::{BinaryHeap, HashMap, VecDeque};
 
 use crate::structure::bonds::{Bond, BondList, BondType};
 use crate::util::check_signals_periodically;
@@ -51,6 +51,10 @@ struct ValenceState {
     abs_charge: i32,
     net_charge: i32,
     valence_sum: u32,
+    /// The atom whose valence option was incremented last.
+    /// Only atoms after it may be incremented in the successor states, so that each
+    /// combination of options is created exactly once.
+    last_incremented: usize,
     /// For each atom the index of the selected valence option.
     /// As an atom has only a handful of options, `u8` is sufficient and keeps the
     /// state small, as it is cloned and hashed for each visited state.
@@ -62,6 +66,7 @@ impl ValenceState {
     /// selected for each atom.
     fn from_selected_options(
         option_indices: Vec<u8>,
+        last_incremented: usize,
         options: &[Vec<Valence>],
         total_charge: i32,
     ) -> Self {
@@ -79,6 +84,7 @@ impl ValenceState {
             abs_charge,
             net_charge,
             valence_sum,
+            last_incremented,
             option_indices,
         }
     }
@@ -494,11 +500,10 @@ pub fn infer_bond_types<'py>(
     // Enumerate the valence states lazily in decreasing order of total valence
     // to avoid materializing the potentially exponential state space
     let mut heap: BinaryHeap<ValenceState> = BinaryHeap::new();
-    let mut visited: HashSet<Vec<u8>> = HashSet::new();
     let initial_indices = vec![0u8; n_atoms];
-    visited.insert(initial_indices.clone());
     heap.push(ValenceState::from_selected_options(
         initial_indices,
+        0,
         &options,
         total_charge,
     ));
@@ -514,19 +519,20 @@ pub fn infer_bond_types<'py>(
         n_visited_states += 1;
         check_signals_periodically(py, n_visited_states)?;
 
-        // Enqueue all successor states,
-        // i.e. states where a single atom has the next lower allowed valence
-        for i in 0..n_atoms {
+        // Enqueue all successor states, i.e. states where a single atom has the next
+        // lower allowed valence
+        // Only atoms after the last incremented one are considered, as otherwise the
+        // same combination of options would be reached via multiple paths
+        for i in state.last_incremented..n_atoms {
             if (state.option_indices[i] as usize) < options[i].len() - 1 {
                 let mut successor = state.option_indices.clone();
                 successor[i] += 1;
-                if visited.insert(successor.clone()) {
-                    heap.push(ValenceState::from_selected_options(
-                        successor,
-                        &options,
-                        total_charge,
-                    ));
-                }
+                heap.push(ValenceState::from_selected_options(
+                    successor,
+                    i,
+                    &options,
+                    total_charge,
+                ));
             }
         }
 

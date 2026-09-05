@@ -31,7 +31,7 @@ _SULFUR_COMPOUNDS = [
 _CHARGED_COMPOUNDS = [
     "CMO",  # carbon monoxide
     "MNC",  # isocyanide
-    "AE9",  # azide
+    "2QB",  # azide
     "JYE",  # tetrazole
     "DL6",  # nitro group
     "7RD",  # charged nitrogen
