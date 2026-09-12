@@ -804,7 +804,7 @@ def _find_matches_by_dense_array(
 
     # Duplicate matches indicate that an atom from the query cannot
     # be uniquely matched to an atom in the reference
-    unique_query_matches, counts = np.unique(query_matches, return_counts=True)
+    unique_query_matches, counts = np.unique_counts(query_matches)
     if np.any(counts > 1):
         ambiguous_query = unique_query_matches[np.where(counts > 1)[0][0]]
         raise InvalidFileError(
