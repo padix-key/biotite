@@ -159,11 +159,7 @@ def superimpose(
             fix_coord = fix_coord[:, atom_mask, :]
             atom_mask = None
 
-    rotation, translation = rust_superimpose(
-        np.ascontiguousarray(fix_coord),
-        np.ascontiguousarray(mob_coord),
-        atom_mask,
-    )
+    rotation, translation = rust_superimpose(fix_coord, mob_coord, atom_mask)
     return RigidTransformation(rotation, translation)
 
 

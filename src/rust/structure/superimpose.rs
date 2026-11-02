@@ -1,9 +1,11 @@
-use numpy::ndarray::Array;
+use numpy::ndarray::{Array, ArrayView2, Axis, CowArray, Ix2};
 use numpy::{
     IntoPyArray, PyArray2, PyArray3, PyReadonlyArray1, PyReadonlyArray3, PyUntypedArrayMethods,
 };
 use pyo3::exceptions;
 use pyo3::prelude::*;
+use std::iter::Zip;
+use std::slice::Iter;
 
 /// Maximum number of Newton-Raphson iterations to find the largest eigenvalue.
 const MAX_NEWTON_ITERATIONS: usize = 50;
@@ -30,7 +32,7 @@ const MAX_JACOBI_SWEEPS: usize = 50;
 /// Parameters
 /// ----------
 /// fixed, mobile
-///     The C-contiguous coordinates to be superimposed, with shape *(m, n, 3)*.
+///     The coordinates to be superimposed, with shape *(m, n, 3)*.
 ///     One of them may also have a single model, which is then used for all models
 ///     of the other one.
 /// atom_mask
@@ -90,10 +92,9 @@ pub fn superimpose<'py>(
             n_fixed_models, n_mobile_models
         )));
     }
-    let fixed = fixed.as_slice()?;
-    let mobile = mobile.as_slice()?;
+    let fixed = fixed.as_array();
+    let mobile = mobile.as_array();
 
-    let model_size = n_atoms * 3;
     let mut rotations: Vec<f64> = Vec::with_capacity(n_models * 9);
     let mut translations: Vec<f64> = Vec::with_capacity(n_models * 3);
     for m in 0..n_models {
@@ -101,8 +102,8 @@ pub fn superimpose<'py>(
         let fixed_model = if n_fixed_models == 1 { 0 } else { m };
         let mobile_model = if n_mobile_models == 1 { 0 } else { m };
         let (rotation, translation) = superimpose_model(
-            &fixed[fixed_model * model_size..(fixed_model + 1) * model_size],
-            &mobile[mobile_model * model_size..(mobile_model + 1) * model_size],
+            fixed.index_axis(Axis(0), fixed_model),
+            mobile.index_axis(Axis(0), mobile_model),
             atom_mask,
         )?;
         rotations.extend(rotation.iter().flatten());
@@ -118,96 +119,246 @@ pub fn superimpose<'py>(
 
 /// Find the rotation matrix and translation vector for a single model.
 fn superimpose_model(
-    fixed: &[f32],
-    mobile: &[f32],
+    fixed: ArrayView2<f32>,
+    mobile: ArrayView2<f32>,
     atom_mask: Option<&[bool]>,
 ) -> PyResult<([[f64; 3]; 3], [f64; 3])> {
-    // First pass: Compute centroids
-    let mut fixed_centroid = [0.0; 3];
-    let mut mobile_centroid = [0.0; 3];
-    let mut n_selected: usize = 0;
-    for_each_selected(fixed, mobile, atom_mask, |fixed_coord, mobile_coord| {
-        for k in 0..3 {
-            fixed_centroid[k] += fixed_coord[k];
-            mobile_centroid[k] += mobile_coord[k];
-        }
-        n_selected += 1;
-    });
-    if n_selected == 0 {
-        return Err(exceptions::PyValueError::new_err(
-            "No atoms are selected for superimposition",
-        ));
-    }
-    for k in 0..3 {
-        fixed_centroid[k] /= n_selected as f64;
-        mobile_centroid[k] /= n_selected as f64;
-    }
+    let fixed = to_supported_layout(fixed);
+    let mobile = to_supported_layout(mobile);
+    let fixed = Layout::of(fixed.view()).expect("Layout is supported");
+    let mobile = Layout::of(mobile.view()).expect("Layout is supported");
 
-    // Second pass: Compute the inner product matrix 'S' of the centered coordinates
-    // and the inner products of each structure with itself
-    let mut s = [[0.0; 3]; 3];
-    let mut fixed_inner_product = 0.0;
-    let mut mobile_inner_product = 0.0;
-    for_each_selected(fixed, mobile, atom_mask, |fixed_coord, mobile_coord| {
-        let mut a = [0.0; 3];
-        let mut b = [0.0; 3];
-        for k in 0..3 {
-            a[k] = fixed_coord[k] - fixed_centroid[k];
-            b[k] = mobile_coord[k] - mobile_centroid[k];
-        }
-        for i in 0..3 {
-            for j in 0..3 {
-                s[i][j] += b[i] * a[j];
-            }
-        }
-        fixed_inner_product += a[0] * a[0] + a[1] * a[1] + a[2] * a[2];
-        mobile_inner_product += b[0] * b[0] + b[1] * b[1] + b[2] * b[2];
-    });
+    use Layout::{ColumnMajor, RowMajor};
+    // Dispatch once to a dedicated implementation for each combination of layouts
+    let moments = match (fixed, mobile) {
+        (RowMajor(a), RowMajor(b)) => Moments::compute(a, b, atom_mask),
+        (RowMajor(a), ColumnMajor(b)) => Moments::compute(a, b, atom_mask),
+        (ColumnMajor(a), RowMajor(b)) => Moments::compute(a, b, atom_mask),
+        (ColumnMajor(a), ColumnMajor(b)) => Moments::compute(a, b, atom_mask),
+    }
+    .ok_or_else(|| {
+        exceptions::PyValueError::new_err("No atoms are selected for superimposition")
+    })?;
 
-    let rotation = optimal_rotation(&s, fixed_inner_product, mobile_inner_product);
+    let rotation = optimal_rotation(
+        &moments.s,
+        moments.fixed_inner_product,
+        moments.mobile_inner_product,
+    )
+    .to_rotation_matrix();
     // The mobile centroid is moved to the origin, the rotation is applied
     // and the coordinates are moved to the fixed centroid
-    let mut translation = fixed_centroid;
-    for i in 0..3 {
-        for j in 0..3 {
-            translation[i] -= rotation[i][j] * mobile_centroid[j];
+    let mut translation = moments.fixed_centroid;
+    for (t, row) in translation.iter_mut().zip(rotation.iter()) {
+        for (r, c) in row.iter().zip(moments.mobile_centroid) {
+            *t -= r * c;
         }
     }
     Ok((rotation, translation))
 }
 
-/// Call `f` for each pair of fixed and mobile coordinates selected by the mask.
-#[inline(always)]
-fn for_each_selected<F: FnMut([f64; 3], [f64; 3])>(
-    fixed: &[f32],
-    mobile: &[f32],
-    atom_mask: Option<&[bool]>,
-    mut f: F,
-) {
-    let to_f64 = |c: &[f32]| [c[0] as f64, c[1] as f64, c[2] as f64];
-    let pairs = fixed.chunks_exact(3).zip(mobile.chunks_exact(3));
-    // Separate loops allow the compiler to optimize the unmasked case
-    match atom_mask {
-        None => pairs.for_each(|(a, b)| f(to_f64(a), to_f64(b))),
-        Some(mask) => pairs.zip(mask).for_each(|((a, b), &selected)| {
-            if selected {
-                f(to_f64(a), to_f64(b))
-            }
-        }),
+/// The quantities of the selected atoms required for superimposition.
+struct Moments {
+    fixed_centroid: [f64; 3],
+    mobile_centroid: [f64; 3],
+    /// The inner product matrix of the centered mobile and fixed coordinates.
+    s: [[f64; 3]; 3],
+    /// The sum of squared centered fixed coordinates.
+    fixed_inner_product: f64,
+    /// The sum of squared centered mobile coordinates.
+    mobile_inner_product: f64,
+}
+
+impl Moments {
+    /// Compute the moments from the fixed and mobile coordinates.
+    ///
+    /// Returns ``None``, if no atom is selected by the mask.
+    fn compute<F: Coordinates, M: Coordinates>(
+        fixed: F,
+        mobile: M,
+        atom_mask: Option<&[bool]>,
+    ) -> Option<Self> {
+        // Zip the raw iterators before conversion, to allow the compiler to use
+        // its optimized implementation for zipped slice iterators
+        let pairs = fixed
+            .raw_iter()
+            .zip(mobile.raw_iter())
+            .map(|(a, b)| (F::to_f64(a), M::to_f64(b)));
+
+        // First pass: Compute centroids
+        let (mut fixed_centroid, mut mobile_centroid, n_selected) = fold_selected(
+            pairs.clone(),
+            atom_mask,
+            ([0.0; 3], [0.0; 3], 0usize),
+            |(mut fixed_sum, mut mobile_sum, n), fixed_coord, mobile_coord| {
+                for k in 0..3 {
+                    fixed_sum[k] += fixed_coord[k];
+                    mobile_sum[k] += mobile_coord[k];
+                }
+                (fixed_sum, mobile_sum, n + 1)
+            },
+        );
+        if n_selected == 0 {
+            return None;
+        }
+        for k in 0..3 {
+            fixed_centroid[k] /= n_selected as f64;
+            mobile_centroid[k] /= n_selected as f64;
+        }
+
+        // Second pass: Compute the inner product matrix of the centered coordinates
+        // and the inner products of each structure with itself
+        let (s, fixed_inner_product, mobile_inner_product) = fold_selected(
+            pairs,
+            atom_mask,
+            ([[0.0; 3]; 3], 0.0, 0.0),
+            |(mut s, mut fixed_inner_product, mut mobile_inner_product),
+             fixed_coord,
+             mobile_coord| {
+                let mut a = [0.0; 3];
+                let mut b = [0.0; 3];
+                for k in 0..3 {
+                    a[k] = fixed_coord[k] - fixed_centroid[k];
+                    b[k] = mobile_coord[k] - mobile_centroid[k];
+                }
+                for i in 0..3 {
+                    for j in 0..3 {
+                        s[i][j] += b[i] * a[j];
+                    }
+                }
+                fixed_inner_product += a[0] * a[0] + a[1] * a[1] + a[2] * a[2];
+                mobile_inner_product += b[0] * b[0] + b[1] * b[1] + b[2] * b[2];
+                (s, fixed_inner_product, mobile_inner_product)
+            },
+        );
+
+        Some(Self {
+            fixed_centroid,
+            mobile_centroid,
+            s,
+            fixed_inner_product,
+            mobile_inner_product,
+        })
     }
 }
 
-/// Find the rotation matrix that minimizes the RMSD between centered structures *A*
-/// (fixed) and *B* (mobile).
+/// Fold over the pairs of fixed and mobile coordinates selected by the mask.
+///
+/// In contrast to accumulating into captured variables, the accumulator is passed by
+/// value, which allows the compiler to keep it in registers.
+#[inline(always)]
+fn fold_selected<I, A, F>(pairs: I, atom_mask: Option<&[bool]>, init: A, mut f: F) -> A
+where
+    I: Iterator<Item = ([f64; 3], [f64; 3])>,
+    F: FnMut(A, [f64; 3], [f64; 3]) -> A,
+{
+    // Separate loops allow the compiler to optimize the unmasked case
+    match atom_mask {
+        None => pairs.fold(init, |acc, (a, b)| f(acc, a, b)),
+        Some(mask) => pairs.zip(mask).fold(
+            init,
+            |acc, ((a, b), &selected)| {
+                if selected {
+                    f(acc, a, b)
+                } else {
+                    acc
+                }
+            },
+        ),
+    }
+}
+
+/// Coordinates of atoms in a certain memory layout.
+trait Coordinates: Copy {
+    /// Iterator over the raw atom coordinates in the memory layout.
+    type RawIter: Iterator + Clone;
+
+    fn raw_iter(self) -> Self::RawIter;
+
+    /// Convert the raw coordinates of an atom yielded by :meth:`raw_iter()`.
+    fn to_f64(raw: <Self::RawIter as Iterator>::Item) -> [f64; 3];
+}
+
+/// C-contiguous coordinates, i.e. the coordinates of each atom are adjacent.
+#[derive(Clone, Copy)]
+struct RowMajorCoordinates<'a>(&'a [[f32; 3]]);
+
+impl<'a> Coordinates for RowMajorCoordinates<'a> {
+    type RawIter = Iter<'a, [f32; 3]>;
+
+    #[inline(always)]
+    fn raw_iter(self) -> Self::RawIter {
+        self.0.iter()
+    }
+
+    #[inline(always)]
+    fn to_f64(coord: &[f32; 3]) -> [f64; 3] {
+        coord.map(|c| c as f64)
+    }
+}
+
+/// Coordinates, where each of the *x*, *y* and *z* columns is contiguous,
+/// e.g. for Fortran-contiguous or transposed arrays.
+#[derive(Clone, Copy)]
+struct ColumnMajorCoordinates<'a>([&'a [f32]; 3]);
+
+impl<'a> Coordinates for ColumnMajorCoordinates<'a> {
+    type RawIter = Zip<Zip<Iter<'a, f32>, Iter<'a, f32>>, Iter<'a, f32>>;
+
+    #[inline(always)]
+    fn raw_iter(self) -> Self::RawIter {
+        let [x, y, z] = self.0;
+        x.iter().zip(y).zip(z)
+    }
+
+    #[inline(always)]
+    fn to_f64(((&x, &y), &z): ((&f32, &f32), &f32)) -> [f64; 3] {
+        [x as f64, y as f64, z as f64]
+    }
+}
+
+/// The memory layouts of *(n, 3)* coordinate arrays that allow efficient iteration.
+#[derive(Clone, Copy)]
+enum Layout<'a> {
+    RowMajor(RowMajorCoordinates<'a>),
+    ColumnMajor(ColumnMajorCoordinates<'a>),
+}
+
+impl<'a> Layout<'a> {
+    /// Get the layout of the given coordinates, if it is supported.
+    fn of(coord: ArrayView2<'a, f32>) -> Option<Self> {
+        if let Some(slice) = coord.to_slice() {
+            // Fixed-size chunks avoid bounds checks in the conversion of each atom,
+            // which otherwise prevent the compiler from inlining it into the loop
+            let (coord, _) = slice.as_chunks::<3>();
+            return Some(Self::RowMajor(RowMajorCoordinates(coord)));
+        }
+        let column = |k| coord.index_axis_move(Axis(1), k).to_slice();
+        Some(Self::ColumnMajor(ColumnMajorCoordinates([
+            column(0)?,
+            column(1)?,
+            column(2)?,
+        ])))
+    }
+}
+
+/// Copy the coordinates into C-contiguous layout, if their layout is not supported
+/// by :class:`Layout`.
+fn to_supported_layout(coord: ArrayView2<f32>) -> CowArray<f32, Ix2> {
+    if Layout::of(coord.view()).is_some() {
+        CowArray::from(coord)
+    } else {
+        CowArray::from(coord.as_standard_layout().into_owned())
+    }
+}
+
+/// Find the rotation, represented by a unit quaternion, that minimizes the RMSD
+/// between centered structures *A* (fixed) and *B* (mobile).
 ///
 /// `s` is the inner product matrix :math:`S_{ij} = \sum_k B_{ki} A_{kj}`,
 /// `inner_product_a` and `inner_product_b` are the sums of squared coordinates of
 /// *A* and *B*, respectively.
-fn optimal_rotation(
-    s: &[[f64; 3]; 3],
-    inner_product_a: f64,
-    inner_product_b: f64,
-) -> [[f64; 3]; 3] {
+fn optimal_rotation(s: &[[f64; 3]; 3], inner_product_a: f64, inner_product_b: f64) -> Quaternion {
     let [[sxx, sxy, sxz], [syx, syy, syz], [szx, szy, szz]] = *s;
     // The key matrix, whose eigenvector belonging to the largest eigenvalue
     // is the quaternion representing the optimal rotation
@@ -224,7 +375,7 @@ fn optimal_rotation(
     if upper_bound == 0.0 {
         // All selected atoms are at the same position in both structures
         // -> any rotation is optimal
-        return IDENTITY;
+        return Quaternion::IDENTITY;
     }
 
     // As the key matrix is traceless, the characteristic polynomial is
@@ -265,7 +416,7 @@ fn optimal_rotation(
             best_column = j;
         }
     }
-    let quaternion =
+    let eigenvector =
         if adjoint[best_column][best_column].abs() > ADJOINT_PRECISION * upper_bound.powi(3) {
             [
                 adjoint[0][best_column],
@@ -279,10 +430,10 @@ fn optimal_rotation(
             // via a full eigendecomposition instead
             largest_eigenvector(key)
         };
-    quaternion_to_rotation(quaternion)
+    Quaternion::from(eigenvector)
+        .normalized()
+        .unwrap_or(Quaternion::IDENTITY)
 }
-
-const IDENTITY: [[f64; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 
 fn determinant_3x3(m: &[[f64; 3]; 3]) -> f64 {
     m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
@@ -399,29 +550,71 @@ fn largest_eigenvector(mut a: [[f64; 4]; 4]) -> [f64; 4] {
     ]
 }
 
-/// Convert a (not necessarily normalized) quaternion into a rotation matrix.
-fn quaternion_to_rotation(q: [f64; 4]) -> [[f64; 3]; 3] {
-    let norm_sq = q.iter().map(|x| x * x).sum::<f64>();
-    if norm_sq == 0.0 {
-        return IDENTITY;
+/// A quaternion :math:`w + xi + yj + zk`.
+///
+/// Unit quaternions represent rotations.
+#[derive(Clone, Copy, Debug)]
+struct Quaternion {
+    w: f64,
+    x: f64,
+    y: f64,
+    z: f64,
+}
+
+impl Quaternion {
+    /// The unit quaternion representing no rotation.
+    const IDENTITY: Self = Self {
+        w: 1.0,
+        x: 0.0,
+        y: 0.0,
+        z: 0.0,
+    };
+
+    fn norm(self) -> f64 {
+        (self.w * self.w + self.x * self.x + self.y * self.y + self.z * self.z).sqrt()
     }
-    let norm = norm_sq.sqrt();
-    let [q0, q1, q2, q3] = q.map(|x| x / norm);
-    [
+
+    /// Scale this quaternion to unit length.
+    ///
+    /// Returns ``None`` for the zero quaternion, as it has no direction.
+    fn normalized(self) -> Option<Self> {
+        let norm = self.norm();
+        if norm == 0.0 {
+            return None;
+        }
+        Some(Self {
+            w: self.w / norm,
+            x: self.x / norm,
+            y: self.y / norm,
+            z: self.z / norm,
+        })
+    }
+
+    /// Get the rotation matrix corresponding to this unit quaternion.
+    fn to_rotation_matrix(self) -> [[f64; 3]; 3] {
+        let Self { w, x, y, z } = self;
         [
-            q0 * q0 + q1 * q1 - q2 * q2 - q3 * q3,
-            2.0 * (q1 * q2 - q0 * q3),
-            2.0 * (q1 * q3 + q0 * q2),
-        ],
-        [
-            2.0 * (q1 * q2 + q0 * q3),
-            q0 * q0 - q1 * q1 + q2 * q2 - q3 * q3,
-            2.0 * (q2 * q3 - q0 * q1),
-        ],
-        [
-            2.0 * (q1 * q3 - q0 * q2),
-            2.0 * (q2 * q3 + q0 * q1),
-            q0 * q0 - q1 * q1 - q2 * q2 + q3 * q3,
-        ],
-    ]
+            [
+                w * w + x * x - y * y - z * z,
+                2.0 * (x * y - w * z),
+                2.0 * (x * z + w * y),
+            ],
+            [
+                2.0 * (x * y + w * z),
+                w * w - x * x + y * y - z * z,
+                2.0 * (y * z - w * x),
+            ],
+            [
+                2.0 * (x * z - w * y),
+                2.0 * (y * z + w * x),
+                w * w - x * x - y * y + z * z,
+            ],
+        ]
+    }
+}
+
+impl From<[f64; 4]> for Quaternion {
+    fn from([w, x, y, z]: [f64; 4]) -> Self {
+        Self { w, x, y, z }
+    }
 }

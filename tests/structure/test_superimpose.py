@@ -119,6 +119,37 @@ def test_superimposition_stack(ca_only):
         assert (struc.rmsd(fixed, fitted) < struc.rmsd(fixed, mobile)).all()
 
 
+@pytest.mark.parametrize("seed", range(3))
+@pytest.mark.parametrize("use_mask", [False, True])
+@pytest.mark.parametrize("mobile_layout", ["row-major", "column-major", "strided"])
+@pytest.mark.parametrize("fixed_layout", ["row-major", "column-major", "strided"])
+def test_memory_layout(fixed_layout, mobile_layout, use_mask, seed):
+    """
+    Check that the transformation does not depend on the memory layout of the
+    input coordinates, by comparing it to the transformation for C-contiguous
+    coordinates.
+    """
+    N_MODELS = 3
+    N_COORD = 100
+
+    rng = np.random.default_rng(seed)
+    fixed = rng.normal(size=(N_MODELS, N_COORD, 3)).astype(np.float32)
+    mobile = _transform_random_affine(fixed, rng).astype(np.float32)
+    mask = rng.random(N_COORD) < 0.5 if use_mask else None
+
+    ref_transform = struc.superimpose(fixed, mobile, atom_mask=mask)
+    test_transform = struc.superimpose(
+        _to_layout(fixed, fixed_layout),
+        _to_layout(mobile, mobile_layout),
+        atom_mask=mask,
+    )
+
+    assert test_transform.rotation == pytest.approx(ref_transform.rotation, abs=1e-12)
+    assert test_transform.translation == pytest.approx(
+        ref_transform.translation, abs=1e-12
+    )
+
+
 @pytest.mark.parametrize("seed", range(5))
 def test_masked_superimposition(seed):
     """
@@ -299,6 +330,22 @@ def _transform_random_affine(coord, rng):
     coord = struc.translate(coord, rng.random(3))
     coord = struc.rotate(coord, rng.uniform(low=0, high=2 * np.pi, size=3))
     return coord
+
+
+def _to_layout(coord, layout):
+    """
+    Get a copy of the given coordinates with the given memory layout.
+    """
+    if layout == "row-major":
+        return np.ascontiguousarray(coord)
+    elif layout == "column-major":
+        # The x, y and z coordinates of each model are contiguous
+        return np.ascontiguousarray(coord.swapaxes(-1, -2)).swapaxes(-1, -2)
+    elif layout == "strided":
+        # Neither the atoms nor the x, y and z coordinates are contiguous
+        return np.repeat(coord, 2, axis=-2)[..., ::2, :]
+    else:
+        raise ValueError(f"Unknown layout '{layout}'")
 
 
 def _delete_random_residues(atoms, p_conservation, rng):
