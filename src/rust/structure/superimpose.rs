@@ -430,7 +430,8 @@ fn optimal_rotation(s: &[[f64; 3]; 3], inner_product_a: f64, inner_product_b: f6
             // via a full eigendecomposition instead
             largest_eigenvector(key)
         };
-    Quaternion::from(eigenvector)
+    let [w, x, y, z] = eigenvector;
+    Quaternion { w, x, y, z }
         .normalized()
         .unwrap_or(Quaternion::IDENTITY)
 }
@@ -610,11 +611,5 @@ impl Quaternion {
                 w * w - x * x - y * y + z * z,
             ],
         ]
-    }
-}
-
-impl From<[f64; 4]> for Quaternion {
-    fn from([w, x, y, z]: [f64; 4]) -> Self {
-        Self { w, x, y, z }
     }
 }
