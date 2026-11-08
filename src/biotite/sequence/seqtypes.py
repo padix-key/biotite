@@ -345,15 +345,18 @@ class NucleotideSequence(Sequence[str]):
                 protein_code = codon_table.map_codon_codes(frame_codons)
                 # Iterate over all start codons in this frame
                 starts = np.where(codon_table.is_start_codon(frame_codons))[0]
-                for start_i in starts:
+                stops = np.where(protein_code == stop_code)[0]
+                # For each start codon find the first stop codon after it
+                next_stop_indices = np.searchsorted(stops, starts)
+                for start_i, next_stop_i in zip(starts, next_stop_indices):
                     # Protein sequence beginning from start codon
                     code_from_start = protein_code[start_i:]
-                    # Get all stop codon positions
-                    # relative to 'code_from_start'
-                    stops = np.where(code_from_start == stop_code)[0]
-                    # Find first stop codon after start codon
-                    # Include stop -> stops[0] + 1
-                    stop_i = stops[0] + 1 if len(stops) > 0 else len(code_from_start)
+                    # Include stop -> + 1
+                    stop_i = (
+                        stops[next_stop_i] - start_i + 1
+                        if next_stop_i < len(stops)
+                        else len(code_from_start)
+                    )
                     code_from_start_to_stop = code_from_start[:stop_i]
                     if met_start:
                         # Copy as the slice is edited
