@@ -209,6 +209,9 @@ def displacement(
                     box.astype(diff.dtype, copy=False),  # pyright: ignore[reportArgumentType]
                     disp,  # pyright: ignore[reportArgumentType]
                 )
+        elif fractions.ndim == 3 and box.ndim <= 3 and np.all(orthogonality):
+            # Multiple models with orthogonal boxes -> vectorize over models
+            _displacement_orthogonal_box(fractions, box, disp)  # pyright: ignore[reportArgumentType]
         elif fractions.ndim == 3:
             # Multiple models
             # (Model count) x (Atom count)

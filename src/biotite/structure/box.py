@@ -599,17 +599,32 @@ def remove_pbc(
     else:
         molecule_masks = get_chain_masks(atoms, get_chain_starts(atoms))
 
-    for mask in molecule_masks:
-        if selection is not None:
-            mask &= selection
+    if selection is not None:
+        molecule_masks &= selection
+    # View with a model dimension, also for an AtomArray
+    coord = new_atoms.coord.reshape(-1, atoms.array_length(), 3)
+    box = atoms.box.reshape(-1, 3, 3)
+    n_atoms_per_molecule = np.count_nonzero(molecule_masks, axis=-1)
+    # Molecules with the same number of atoms are handled in a single call,
+    # by treating each molecule in each model as a separate model
+    for n_atoms in np.unique(n_atoms_per_molecule):
+        if n_atoms == 0:
+            continue
+        # Shape: (molecule, atom)
+        indices = np.nonzero(molecule_masks[n_atoms_per_molecule == n_atoms])[1]
+        indices = indices.reshape(-1, n_atoms)
+        mol_box = np.repeat(box, len(indices), axis=0)
         # Remove segmentation in molecule
-        new_atoms.coord[..., mask, :] = remove_pbc_from_coord(
-            new_atoms.coord[..., mask, :], atoms.box
-        )
+        coord[:, indices] = remove_pbc_from_coord(
+            coord[:, indices].reshape(-1, n_atoms, 3), mol_box
+        ).reshape(coord.shape[0], *indices.shape, 3)
         # Put center of molecule into box
-        center = centroid(new_atoms.coord[..., mask, :])[..., np.newaxis, :]
-        center_in_box = move_inside_box(center, new_atoms.box)  # pyright: ignore[reportCallIssue, reportArgumentType]
-        new_atoms.coord[..., mask, :] += center_in_box - center
+        mol_coord = coord[:, indices].reshape(-1, n_atoms, 3)
+        center = centroid(mol_coord)[..., np.newaxis, :]
+        center_in_box = move_inside_box(center, mol_box)  # pyright: ignore[reportCallIssue, reportArgumentType]
+        coord[:, indices] = (mol_coord + (center_in_box - center)).reshape(
+            coord.shape[0], *indices.shape, 3
+        )
 
     return new_atoms
 
