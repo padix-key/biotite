@@ -2,6 +2,7 @@ __name__ = "biotite.structure.io.pdbqt"
 __author__ = "Patrick Kunzmann, Daniel Bauer"
 __all__ = ["PDBQTFile"]
 
+import itertools
 import warnings
 from typing import Any, Literal, TypeVar, overload
 import numpy as np
@@ -470,8 +471,33 @@ class PDBQTFile(TextFile):
             atom_id = atoms.atom_id
         else:
             atom_id = np.arange(1, atoms.array_length() + 1)
-        occupancy = np.ones(atoms.array_length())
-        b_factor = np.zeros(atoms.array_length())
+        # Format all atom lines at once from Python lists,
+        # as indexing NumPy arrays for each atom is slow
+        # Occupancy and B-factor are fixed to 1 and 0, respectively
+        line_format = (
+            "{:6}{:>5d} {:4} {:3} {:1}{:>4d}{:1}   "
+            "{:>8.3f}{:>8.3f}{:>8.3f}{:>6.2f}{:>6.2f}    {:>6.3f} {:2}"
+        )
+        x, y, z = atoms.coord.T.tolist()
+        atom_lines = [
+            line_format.format(*fields)
+            for fields in zip(
+                hetero,
+                atom_id.tolist(),
+                atoms.atom_name.tolist(),
+                atoms.res_name.tolist(),
+                atoms.chain_id.tolist(),
+                atoms.res_id.tolist(),
+                atoms.ins_code.tolist(),
+                x,
+                y,
+                z,
+                itertools.repeat(1.0),
+                itertools.repeat(0.0),
+                charges.tolist(),
+                types.tolist(),
+            )
+        ]
 
         # Convert rotatable bonds into array for easier handling
         # The bond type is irrelevant from this point on
@@ -480,12 +506,8 @@ class PDBQTFile(TextFile):
         self.lines = []
         self._write_atoms(
             atoms,
-            charges,
-            types,
+            atom_lines,
             atom_id,
-            hetero,
-            occupancy,
-            b_factor,
             root_index,
             rotatable_bonds_arr,
             np.zeros(len(rotatable_bonds_arr), dtype=bool),
@@ -499,12 +521,8 @@ class PDBQTFile(TextFile):
     def _write_atoms(
         self,
         atoms: AtomArray[Any],
-        charges: NDArray1[Any, np.floating],
-        types: NDArray1[Any, np.str_],
+        atom_lines: list[str],
         atom_id: NDArray1[Any, np.integer],
-        hetero: list[str],
-        occupancy: NDArray1[Any, np.floating],
-        b_factor: NDArray1[Any, np.floating],
         root_atom: int,
         rotatable_bonds: NDArray2[Any, Any, np.integer],
         visited_rotatable_bonds: NDArray1[Any, np.bool_],
@@ -529,23 +547,7 @@ class PDBQTFile(TextFile):
 
         if is_root:
             self.lines.append("ROOT")
-        for i in this_branch_indices:
-            self.lines.append(
-                f"{hetero[i]:6}"
-                f"{atom_id[i]:>5d} "
-                f"{atoms.atom_name[i]:4} "
-                f"{atoms.res_name[i]:3} "
-                f"{atoms.chain_id[i]:1}"
-                f"{atoms.res_id[i]:>4d}"
-                f"{atoms.ins_code[i]:1}   "
-                f"{atoms.coord[i, 0]:>8.3f}"
-                f"{atoms.coord[i, 1]:>8.3f}"
-                f"{atoms.coord[i, 2]:>8.3f}"
-                f"{occupancy[i]:>6.2f}"
-                f"{b_factor[i]:>6.2f}    "
-                f"{charges[i]:>6.3f} "
-                f"{types[i]:2}"
-            )
+        self.lines.extend(atom_lines[i] for i in this_branch_indices.tolist())
         if is_root:
             self.lines.append("ENDROOT")
 
@@ -579,12 +581,8 @@ class PDBQTFile(TextFile):
             )
             self._write_atoms(
                 atoms,
-                charges,
-                types,
+                atom_lines,
                 atom_id,
-                hetero,
-                occupancy,
-                b_factor,
                 # The root atom of the branch
                 # is the other atom of the rotatable bond
                 new_br_i,
@@ -669,47 +667,45 @@ def convert_atoms(
 
     atom_types = np.zeros(atoms.array_length(), dtype="U2")
     hydrogen_removal_mask = np.zeros(atoms.array_length(), dtype=bool)
-    for i in range(atoms.array_length()):
-        element = atoms.element[i]
-        bonded_atoms = all_bonds[i][all_bonds[i] != -1]
-        if element in ("H", "D"):
-            if len(bonded_atoms) == 0:
-                # Free proton
-                atom_types[i] = "H"
-            elif len(bonded_atoms) == 1:
-                j = bonded_atoms[0]
-                bonded_element = atoms.element[j]
-                if bonded_element == "C":
-                    # Remove hydrogen and add its charge
-                    # to charge of bonded carbon
-                    charges[j] += charges[i]
-                    hydrogen_removal_mask[i] = True
-                else:
-                    atom_types[i] = "HD"
-            else:
-                raise BadStructureError(
-                    "Structure contains hydrogen with multiple bonds"
-                )
-        elif element == "C":
-            if np.isin(
-                all_bond_types[i], [BondType.AROMATIC_SINGLE, BondType.AROMATIC_DOUBLE]
-            ).any():
-                # Aromatic carbon
-                atom_types[i] = "A"
-            else:
-                # Alphatic carbon
-                atom_types[i] = "C"
-        elif element == "N":
-            atom_types[i] = "NA"
-        elif element == "O":
-            atom_types[i] = "OA"
-        elif element == "S":
-            atom_types[i] = "SA"
-        elif element.capitalize() in PARAMETRIZED_ELEMENTS:
-            atom_types[i] = element.capitalize()
+    element = atoms.element
+    n_bonded = np.count_nonzero(all_bonds != -1, axis=1)
+
+    is_hydrogen = np.isin(element, ("H", "D"))
+    if np.any(is_hydrogen & (n_bonded > 1)):
+        raise BadStructureError("Structure contains hydrogen with multiple bonds")
+    # Free proton
+    atom_types[is_hydrogen & (n_bonded == 0)] = "H"
+    hydrogen_i = np.where(is_hydrogen & (n_bonded == 1))[0]
+    # The only bond partner is the only non-padding value
+    partner_i = np.max(all_bonds[hydrogen_i], axis=1, initial=-1)
+    is_bonded_to_carbon = element[partner_i] == "C"
+    # Remove hydrogen and add its charge to charge of bonded carbon
+    # 'np.add.at()' accumulates sequentially for carbon atoms with multiple hydrogens
+    np.add.at(
+        charges,
+        partner_i[is_bonded_to_carbon],
+        charges[hydrogen_i[is_bonded_to_carbon]],
+    )
+    hydrogen_removal_mask[hydrogen_i[is_bonded_to_carbon]] = True
+    atom_types[hydrogen_i[~is_bonded_to_carbon]] = "HD"
+
+    is_carbon = element == "C"
+    is_aromatic = np.isin(
+        all_bond_types, [BondType.AROMATIC_SINGLE, BondType.AROMATIC_DOUBLE]
+    ).any(axis=1)
+    atom_types[is_carbon & is_aromatic] = "A"
+    atom_types[is_carbon & ~is_aromatic] = "C"
+    atom_types[element == "N"] = "NA"
+    atom_types[element == "O"] = "OA"
+    atom_types[element == "S"] = "SA"
+
+    # Handle the remaining, usually few, atoms individually
+    for i in np.where(~np.isin(element, ("H", "D", "C", "N", "O", "S")))[0]:
+        if element[i].capitalize() in PARAMETRIZED_ELEMENTS:
+            atom_types[i] = element[i].capitalize()
         else:
             warnings.warn(
-                f"Element {element} is not paramtrized, "
+                f"Element {element[i]} is not paramtrized, "
                 f"using parameters for hydrogen instead"
             )
             atom_types[i] = "H"
