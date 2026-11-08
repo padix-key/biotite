@@ -36,6 +36,7 @@ from biotite.structure.info.groups import (
     nucleotide_names,
 )
 from biotite.structure.residues import get_residue_count, get_residue_starts
+from biotite.structure.segments import get_segment_positions
 from biotite.typing import M, N, NDArray1
 
 _canonical_aa_list = [
@@ -559,15 +560,10 @@ def filter_first_altloc(
     altloc_filter = np.isin(altloc_ids, [".", "?", " ", ""])
 
     # And filter all atoms for each residue with the first altloc ID
-    residue_starts = get_residue_starts(atoms, add_exclusive_stop=True)
-    for start, stop in zip(residue_starts[:-1], residue_starts[1:]):
+    for start, stop in _residues_with_altloc(atoms, altloc_ids):
         letter_altloc_ids = [loc for loc in altloc_ids[start:stop] if loc.isalnum()]
-        if len(letter_altloc_ids) > 0:
-            first_id = letter_altloc_ids[0]
-            altloc_filter[start:stop] |= altloc_ids[start:stop] == first_id
-        else:
-            # No altloc ID in this residue -> Nothing to do
-            pass
+        first_id = letter_altloc_ids[0]
+        altloc_filter[start:stop] |= altloc_ids[start:stop] == first_id
 
     return altloc_filter
 
@@ -641,27 +637,36 @@ def filter_highest_occupancy_altloc(
 
     # And filter all atoms for each residue with the highest sum of
     # occupancies
-    residue_starts = get_residue_starts(atoms, add_exclusive_stop=True)
-    for start, stop in zip(residue_starts[:-1], residue_starts[1:]):
+    for start, stop in _residues_with_altloc(atoms, altloc_ids):
         occupancies_in_res = occupancies[start:stop]
         altloc_ids_in_res = altloc_ids[start:stop]
 
         letter_altloc_ids = [loc for loc in altloc_ids_in_res if loc.isalnum()]
 
-        if len(letter_altloc_ids) > 0:
-            highest = -1.0
-            highest_id = None
-            for id in sorted(set(letter_altloc_ids)):
-                occupancy_sum = np.sum(occupancies_in_res[altloc_ids_in_res == id])
-                if occupancy_sum > highest:
-                    highest = occupancy_sum
-                    highest_id = id
-            altloc_filter[start:stop] |= altloc_ids[start:stop] == highest_id
-        else:
-            # No altloc ID in this residue -> Nothing to do
-            pass
+        highest = -1.0
+        highest_id = None
+        for id in sorted(set(letter_altloc_ids)):
+            occupancy_sum = np.sum(occupancies_in_res[altloc_ids_in_res == id])
+            if occupancy_sum > highest:
+                highest = occupancy_sum
+                highest_id = id
+        altloc_filter[start:stop] |= altloc_ids[start:stop] == highest_id
 
     return altloc_filter
+
+
+def _residues_with_altloc(
+    atoms: AtomArray[N] | AtomArrayStack[M, N],
+    altloc_ids: NDArray1[N, np.str_],
+) -> Iterable[tuple[int, int]]:
+    """
+    Get the start and stop index of each residue that contains at least one
+    atom with an altloc ID.
+    """
+    residue_starts = get_residue_starts(atoms, add_exclusive_stop=True)
+    altloc_atoms = np.flatnonzero(np.strings.isalnum(altloc_ids))
+    altloc_residues = np.unique(get_segment_positions(residue_starts, altloc_atoms))
+    return zip(residue_starts[altloc_residues], residue_starts[altloc_residues + 1])
 
 
 def _annotations_to_structured(
