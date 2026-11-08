@@ -718,20 +718,13 @@ def base_stacking(
     # Contains the plausible pairs of stacked bases
     stacked_bases = []
 
-    # Get the residue masks for each residue
-    base_masks = get_residue_masks(atom_array, stacking_candidates.flatten())
+    # Each base is part of many candidate pairs
+    # -> match each base only once
+    match_base = _BaseMatcher(atom_array, stacking_candidates, min_atoms_per_base)
 
-    # Group every two masks together for easy iteration (each 'row' is
-    # respective to a row in ``stacking_candidates``)
-    base_masks = base_masks.reshape(
-        (stacking_candidates.shape[0], 2, atom_array.shape[0])
-    )
-
-    for (base1_index, base2_index), (base1_mask, base2_mask) in zip(
-        stacking_candidates, base_masks
+    for (base1_index, base2_index), (base1_i, base2_i) in zip(
+        stacking_candidates, match_base.candidate_indices
     ):
-        bases = (atom_array[base1_mask], atom_array[base2_mask])
-
         # A list containing ndarray for each base with transformed
         # vectors from the standard base reference frame to the
         # structures' coordinates. The layout is as follows:
@@ -743,8 +736,8 @@ def base_stacking(
         transformed_std_vectors: list[np.ndarray | None] = [None, None]
 
         # Generate the data necessary for analysis of each base.
-        for i in range(2):
-            base_tuple = _match_base(bases[i], min_atoms_per_base)
+        for i, base_i in enumerate((base1_i, base2_i)):
+            base_tuple = match_base(base_i)
 
             if base_tuple is None:
                 break
@@ -907,22 +900,14 @@ def base_pairs(
     # Contains the number of hydrogens for each plausible base pair
     basepairs_hbonds = []
 
-    # Get the residue masks for each residue
-    base_masks = get_residue_masks(nucleosides, basepair_candidates.flatten())
+    # Each base may be part of multiple candidate pairs
+    # -> match each base only once
+    match_base = _BaseMatcher(nucleosides, basepair_candidates, min_atoms_per_base)
 
-    # Group every two masks together for easy iteration (each 'row' is
-    # respective to a row in ``basepair_candidates``)
-    base_masks = base_masks.reshape(
-        (basepair_candidates.shape[0], 2, nucleosides.shape[0])
-    )
-
-    for (base1_index, base2_index), (base1_mask, base2_mask), n_o_pairs in zip(
-        basepair_candidates, base_masks, n_o_matches
+    for (base1_index, base2_index), base_indices, n_o_pairs in zip(
+        basepair_candidates, match_base.candidate_indices, n_o_matches
     ):
-        base1 = nucleosides[base1_mask]
-        base2 = nucleosides[base2_mask]
-
-        hbonds = _check_dssr_criteria((base1, base2), min_atoms_per_base, unique)
+        hbonds = _check_dssr_criteria(match_base, base_indices)
 
         # If no hydrogens are present use the number N/O pairs to
         # decide between multiple pairing possibilities.
@@ -965,38 +950,81 @@ def base_pairs(
     # Remap values to original atom array
     if len(basepair_array) > 0:
         basepair_array = np.where(boolean_mask)[0][basepair_array]
-        for i, row in enumerate(basepair_array):
-            basepair_array[i] = get_residue_starts_for(atom_array, row)
+        basepair_array[:] = get_residue_starts_for(
+            atom_array, basepair_array.flatten()
+        ).reshape(basepair_array.shape)
     return basepair_array
 
 
+class _BaseMatcher:
+    """
+    Lazily match the bases of candidate pairs to their standard base reference frame
+    via :func:`_match_base()`, so that each base is matched only once, even if it is
+    part of multiple pairs.
+
+    Parameters
+    ----------
+    atom_array : AtomArray
+        The :class:`AtomArray` containing the bases.
+    candidates : ndarray, dtype=int, shape=(n,2)
+        The residue start indices of the candidate pairs.
+    min_atoms_per_base : int
+        Passed to :func:`_match_base()`.
+
+    Attributes
+    ----------
+    bases : list [AtomArray, ...]
+        The unique bases in `candidates`.
+    candidate_indices : ndarray, dtype=int, shape=(n,2)
+        The indices of the `candidates` in `bases`.
+    """
+
+    def __init__(
+        self,
+        atom_array: AtomArray[N],
+        candidates: NDArray2[K, C2, np.integer],
+        min_atoms_per_base: int,
+    ) -> None:
+        unique_starts, candidate_indices = np.unique(candidates, return_inverse=True)
+        self.candidate_indices = candidate_indices.reshape(candidates.shape)
+        self.bases = [
+            atom_array[mask] for mask in get_residue_masks(atom_array, unique_starts)
+        ]
+        self._min_atoms_per_base = min_atoms_per_base
+        self._cache: dict[int, np.ndarray | None] = {}
+
+    def __call__(self, base_index: int) -> NDArray2[Any, XYZ, np.floating] | None:
+        if base_index not in self._cache:
+            self._cache[base_index] = _match_base(
+                self.bases[base_index], self._min_atoms_per_base
+            )
+        return self._cache[base_index]
+
+
 def _check_dssr_criteria(
-    basepair: tuple[AtomArray[Any], AtomArray[Any]],
-    min_atoms_per_base: int,
-    unique: bool,
+    match_base: _BaseMatcher,
+    base_indices: NDArray1[C2, np.integer],
 ) -> int | None:
     """
     Check the DSSR criteria of a potential base pair.
 
     Parameters
     ----------
-    basepair : tuple (AtomArray, AtomArray)
-        The two bases to check the criteria for as :class:`AtomArray`.
-    min_atoms_per_base : int
-        The number of atoms a nucleotides' base must have to be
-        considered a candidate for a base pair.
-    unique : bool
-        If ``True``, the shortest hydrogen bond length between the bases
-        is calculated for plausible base pairs.
+    match_base : _BaseMatcher
+        The matcher containing the bases.
+    base_indices : ndarray, dtype=int, shape=(2,)
+        The indices of the two bases to check the criteria for in
+        ``match_base.bases``.
 
     Returns
     -------
     satisfied : int
-        `> 0` if the base pair satisfies the criteria and `-1`,
-        if it does not.
-        If unique is ``True``, the number of hydrogen bonds is
-        returned for plausible base pairs.
+        The number of hydrogen bonds if the base pair satisfies the
+        criteria and `-1`, if it does not.
+        ``None`` if the bases contain no hydrogen atoms and all other
+        criteria are satisfied.
     """
+    basepair = (match_base.bases[base_indices[0]], match_base.bases[base_indices[1]])
 
     # A list containing ndarray for each base with transformed
     # vectors from the standard base reference frame to the structures'
@@ -1010,7 +1038,7 @@ def _check_dssr_criteria(
 
     # Generate the data necessary for analysis of each base.
     for i in range(2):
-        transformed_std_vectors[i] = _match_base(basepair[i], min_atoms_per_base)
+        transformed_std_vectors[i] = match_base(base_indices[i])
 
         if transformed_std_vectors[i] is None:
             return -1
@@ -1073,8 +1101,8 @@ def _check_dssr_criteria(
         bonds = len(
             hbond(
                 potential_basepair,
-                np.ones_like(potential_basepair, dtype=bool),
-                np.ones_like(potential_basepair, dtype=bool),
+                np.ones(potential_basepair.array_length(), dtype=bool),
+                np.ones(potential_basepair.array_length(), dtype=bool),
             )
         )
 
