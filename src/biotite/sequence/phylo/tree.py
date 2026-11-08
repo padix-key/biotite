@@ -12,6 +12,7 @@ __all__ = [
     "as_binary",
 ]
 
+import re
 from collections.abc import Sequence
 from typing import Any
 import networkx as nx
@@ -21,6 +22,8 @@ from biotite.typing import NDArray1, NDArray2
 
 # Characters that are part of the Newick syntax and hence must not appear in labels
 _NEWICK_SYNTAX_CHARS = "(),:;"
+# Matches a label or distance, i.e. everything up to the next syntax character
+_NEWICK_TOKEN = re.compile(r"[^(),:;]*")
 
 
 def get_root(tree: nx.DiGraph) -> Any:
@@ -378,6 +381,13 @@ def from_newick(newick: str, labels: Sequence[str] | None = None) -> nx.DiGraph:
     # Whether the next token must be a node, i.e. a leaf or an opening
     # bracket, as it is the case at the start and after '(' and ','
     node_expected = True
+    # Map each label to its index for fast lookup
+    # Iterate in reverse to map duplicate labels to their first index
+    label_indices = (
+        None
+        if labels is None
+        else {label: i for i, label in reversed(list(enumerate(labels)))}
+    )
     i = 0
     while i < len(newick):
         match newick[i]:
@@ -412,7 +422,7 @@ def from_newick(newick: str, labels: Sequence[str] | None = None) -> nx.DiGraph:
                 if not node_expected:
                     raise InvalidFileError(f"Unexpected label at position {i}")
                 label, distance, i = _parse_label_and_distance(newick, i)
-                node = _leaf_from_label(label, labels)
+                node = _leaf_from_label(label, label_indices)
                 leaves.append(node)
                 root = _attach_node(open_nodes, root, node, distance)
                 node_expected = False
@@ -589,16 +599,12 @@ def _parse_label_and_distance(newick: str, start: int) -> tuple[str, float, int]
     Returns the label, the distance (0 if absent) and the position after
     the parsed part.
     """
-    stop = start
-    while stop < len(newick) and newick[stop] not in _NEWICK_SYNTAX_CHARS:
-        stop += 1
+    stop = _NEWICK_TOKEN.match(newick, start).end()  # pyright: ignore[reportOptionalMemberAccess]
     label = newick[start:stop]
     distance = 0.0
     if stop < len(newick) and newick[stop] == ":":
         start = stop + 1
-        stop = start
-        while stop < len(newick) and newick[stop] not in _NEWICK_SYNTAX_CHARS:
-            stop += 1
+        stop = _NEWICK_TOKEN.match(newick, start).end()  # pyright: ignore[reportOptionalMemberAccess]
         try:
             distance = float(newick[start:stop])
         except ValueError:
@@ -606,11 +612,11 @@ def _parse_label_and_distance(newick: str, start: int) -> tuple[str, float, int]
     return label, distance, stop
 
 
-def _leaf_from_label(label: str, labels: Sequence[str] | None) -> int:
+def _leaf_from_label(label: str, label_indices: dict[str, int] | None) -> int:
     """
     Convert a leaf label into the leaf node number.
     """
-    if labels is None:
+    if label_indices is None:
         try:
             return int(label)
         except ValueError:
@@ -620,8 +626,8 @@ def _leaf_from_label(label: str, labels: Sequence[str] | None) -> int:
             )
     else:
         try:
-            return labels.index(label)
-        except ValueError:
+            return label_indices[label]
+        except KeyError:
             raise ValueError(f"Leaf label '{label}' is not in 'labels'")
 
 
