@@ -5,8 +5,9 @@ __all__ = ["DCDFile"]
 from typing import Any
 import biotraj
 import numpy as np
-from biotite.structure.box import unitcell_from_vectors, vectors_from_unitcell
+from biotite.structure.box import unitcell_from_vectors
 from biotite.structure.io.trajfile import TrajectoryFile
+from biotite.structure.io.util import vectors_from_unitcells
 from biotite.typing import XYZ, M, NDArray1, NDArray3
 
 
@@ -34,15 +35,7 @@ class DCDFile(TrajectoryFile):
         if cell_lengths is None or cell_angles is None:
             box = None
         else:
-            box = np.stack(
-                [
-                    vectors_from_unitcell(a, b, c, alpha, beta, gamma)
-                    for (a, b, c), (alpha, beta, gamma) in zip(
-                        cell_lengths, np.deg2rad(cell_angles)
-                    )
-                ],
-                axis=0,
-            )
+            box = vectors_from_unitcells(cell_lengths, np.deg2rad(cell_angles))
         return coord, box, None
 
     @classmethod
