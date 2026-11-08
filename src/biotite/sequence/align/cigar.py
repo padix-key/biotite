@@ -5,6 +5,7 @@ __author__ = "Patrick Kunzmann"
 __all__ = ["CigarOp", "read_alignment_from_cigar", "write_alignment_to_cigar"]
 
 import enum
+import re
 from collections.abc import Iterable
 from collections.abc import Sequence as SequenceABC
 from typing import Literal, overload
@@ -64,6 +65,17 @@ _str_to_op = {
     "B": CigarOp.BACK,
 }
 _op_to_str = {v: k for k, v in _str_to_op.items()}
+_CIGAR_PATTERN = re.compile(r"(\d*)(\D)")
+_SUPPORTED_OPS = list(CigarOp)
+_SUPPORTED_OPS.remove(CigarOp.PADDING)
+_SUPPORTED_OPS.remove(CigarOp.BACK)
+# Lookup table indexed by operation, the columns indicate whether the operation
+# consumes a reference base, consumes a segment base and is an alignment column
+_OP_FLAGS = np.zeros((len(CigarOp), 3), dtype=bool)
+_OP_FLAGS[[CigarOp.MATCH, CigarOp.EQUAL, CigarOp.DIFFERENT], :] = True
+_OP_FLAGS[[CigarOp.DELETION, CigarOp.INTRON], 0] = True
+_OP_FLAGS[[CigarOp.DELETION, CigarOp.INTRON, CigarOp.INSERTION], 2] = True
+_OP_FLAGS[[CigarOp.INSERTION, CigarOp.SOFT_CLIP], 1] = True
 
 
 def read_alignment_from_cigar(
@@ -165,37 +177,20 @@ def read_alignment_from_cigar(
             [reference_sequence, segment_sequence], np.zeros((0, 2), dtype=int)
         )
 
-    trace = np.zeros((np.sum(operations[:, 1]), 2), dtype=int)
-    clip_mask = np.ones(trace.shape[0], dtype=bool)
+    ops = operations[:, 0]
+    lengths = operations[:, 1]
+    if not set(ops.tolist()).issubset(_SUPPORTED_OPS):
+        # Raises a 'ValueError' for invalid operation codes
+        op = CigarOp(ops[~np.isin(ops, _SUPPORTED_OPS)][0])
+        raise ValueError(f"CIGAR operation {op} is not implemented")
 
-    i = 0
-    ref_pos = position
-    seg_pos = 0
-    for op, length in operations:
-        op = CigarOp(op)
-        if op in (CigarOp.MATCH, CigarOp.EQUAL, CigarOp.DIFFERENT):
-            trace[i : i + length, 0] = np.arange(ref_pos, ref_pos + length)
-            trace[i : i + length, 1] = np.arange(seg_pos, seg_pos + length)
-            ref_pos += length
-            seg_pos += length
-        elif op == CigarOp.INSERTION:
-            trace[i : i + length, 0] = -1
-            trace[i : i + length, 1] = np.arange(seg_pos, seg_pos + length)
-            seg_pos += length
-        elif op in (CigarOp.DELETION, CigarOp.INTRON):
-            trace[i : i + length, 0] = np.arange(ref_pos, ref_pos + length)
-            trace[i : i + length, 1] = -1
-            ref_pos += length
-        elif op == CigarOp.SOFT_CLIP:
-            clip_mask[i : i + length] = False
-            seg_pos += length
-        elif op == CigarOp.HARD_CLIP:
-            clip_mask[i : i + length] = False
-        else:
-            raise ValueError(f"CIGAR operation {op} is not implemented")
-        i += length
+    flags = np.repeat(_OP_FLAGS[ops], lengths, axis=0)
+    # The trace indices are the running count of consumed bases
+    trace = np.cumsum(flags[:, :2], axis=0) - 1
+    trace[:, 0] += position
+    trace[~flags[:, :2]] = -1
     # Remove clipped positions
-    trace = trace[clip_mask]
+    trace = trace[flags[:, 2]]
     return Alignment([reference_sequence, segment_sequence], trace)
 
 
@@ -438,23 +433,17 @@ def _cigar_from_op_tuples(op_tuples: NDArray2[K, C2, np.integer]) -> str:
     The first element of each tuple specifies the operation and the
     second element specifies the number of repetitions.
     """
-    cigar = ""
-    for op, count in op_tuples:
-        cigar += str(count) + CigarOp(op).to_cigar_symbol()
-    return cigar
+    return "".join(f"{count}{_op_to_str[op]}" for op, count in op_tuples.tolist())
 
 
 def _op_tuples_from_cigar(cigar: str) -> NDArray2[K, C2, np.integer]:
     """
     Create a list of tuples from a CIGAR string.
     """
-    op_tuples = []
-    count = ""
-    for char in cigar:
-        if char.isdigit():
-            count += char
-        else:
-            op = CigarOp.from_cigar_symbol(char)
-            op_tuples.append((op, count))
-            count = ""
-    return np.array(op_tuples, dtype=int)
+    return np.array(
+        [
+            (CigarOp.from_cigar_symbol(symbol), count)
+            for count, symbol in _CIGAR_PATTERN.findall(cigar)
+        ],
+        dtype=int,
+    )
